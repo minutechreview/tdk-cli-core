@@ -6,9 +6,9 @@ The TDK Landscape monorepo now includes a **Golden Image** workflow that signifi
 
 ## Architecture Integration
 
-### 1. Provider Layer (`.tilt/providers/docker/`)
+### 1. Provider Layer (`engine/topologies/platform/docker/`)
 
-**File**: `.tilt/providers/docker/golden-image.star`
+**File**: `engine/topologies/platform/docker/build/golden_image.star`
 
 The golden image provider follows the established Tilt SDK pattern:
 
@@ -21,7 +21,7 @@ GoldenImage = struct(
 )
 ```
 
-**Exported via**: `.tilt/providers/docker/index.star`
+**Exported via**: `engine/topologies/platform/docker/index.star`
 ```starlark
 Docker = struct(
     # ... existing functions
@@ -29,7 +29,7 @@ Docker = struct(
 )
 ```
 
-### 2. Infrastructure Layer (`.tilt/provisioner/infra-loader.star`)
+### 2. Infrastructure Layer (`engine/topologies/tilt/resources/infra-loader.star`)
 
 The golden image is treated as **infrastructure**, building before application services:
 
@@ -52,7 +52,7 @@ def load_all_infrastructure(should_enable, fix_docker_networks_fn, docker_provid
 - `_load_golden_image()` - Creates `local_resource` for building the image
 - `_generate_golden_dockerfile()` - Auto-generates `docker/golden.Dockerfile` if missing
 
-### 3. Orchestrator Integration (`.tilt/provisioner/orchestrator/apply.star`)
+### 3. Orchestrator Integration (`engine/topologies/tilt/resources/orchestrator/apply.star`)
 
 Services automatically depend on the golden image:
 
@@ -69,7 +69,7 @@ if should_enable('golden-image') and ctx.get('golden_image_resource'):
 
 This ensures the golden image builds before any service Dockerfiles are processed.
 
-### 4. Layer Generator Updates (`.tilt/providers/docker/layers/l1_base_layers.star`)
+### 4. Layer Generator Updates (`engine/topologies/platform/docker/layers/l1_base_layers.star`)
 
 The L1 base layer now intelligently uses the golden image:
 
@@ -92,7 +92,7 @@ def L1_generate_os_base(base_image = None, maintainer = "TDK Landscape", use_gol
     ...
 ```
 
-### 5. Configuration (`.tilt/core/registry/config.star`)
+### 5. Configuration (`engine/topologies/tilt/config/global.star`)
 
 Golden image is **enabled by default**. Verdaccio is Premium and off by
 default - it requires TDK_LICENSE_KEY (see project-features.ts):
@@ -218,11 +218,24 @@ vim docker/golden.Dockerfile
 
 **Option 2: Update Generator** (permanent):
 ```bash
-vim .tilt/providers/docker/golden-image.star
+vim engine/topologies/platform/docker/build/golden_image.star
 # Edit _generate_golden_dockerfile() function
 # Delete docker/golden.Dockerfile
 # Restart Tilt to regenerate
 ```
+
+## Warm starts and build speed (local development only)
+
+These settings change how `tdk up` builds images on your machine. They do not change the images that run, and they do not generate Kubernetes manifests.
+
+- **Golden images are skipped when unchanged.** Each golden image carries a `tdk.golden.hash` label, the hash of the generated golden Dockerfile. When every golden tag exists with the current hash, `golden-layers-build` exits with "Golden images are up to date" and builds nothing.
+- **Force a golden rebuild** with `TDK_GOLDEN_REBUILD=1 tdk up ...`.
+- **Golden targets build in one `docker buildx bake`** (with `--load`). The filesystem entitlement is passed only on Buildx 0.19 or later. Without buildx, each target is built with `docker build`, labelled with the same hash.
+- **Parallel image builds** come from the Docker engine: Tilt's `max_parallel_updates` is set from the engine's CPU count (minus two) and memory (about 1.5 GiB per build), with a minimum of 3 and a maximum of 8. Set `TDK_MAX_PARALLEL_BUILDS=<n>` to choose the value. If `docker info` cannot be read, Tilt's default applies and the Tilt log says why.
+- **Frontend type-checks run outside the image.** A frontend whose build script is `tsc --noEmit && vite build` builds with `bunx vite build` inside the image, and a non-blocking `<service>-typecheck` resource runs `tsc --noEmit` on the host. The resource needs the service's dependencies installed (`bun install`); without them it says so. A plain `tsc` (which emits output) and a custom Vite config keep the script's own build.
+- **Measure a start** with `node scripts/benchmark/tilt-build-durations.mjs --port <tilt port>`, which prints each resource's latest build time.
+
+**Measured on `tdk-restaurant-example`** (macOS 26.5.2, arm64, 8 CPUs; tdk 1.3.144): a cold start (all project images and build cache removed) takes 281 seconds to all eight containers healthy. Warm starts take 38 to 50 seconds to healthy, and the golden base build is skipped in about 2 seconds instead of rebuilding for 2 minutes. Full tables, the chart and the raw data are in [`benchmarks/results/tdk-up-warm-start-2026-10-11`](../../benchmarks/results/tdk-up-warm-start-2026-10-11/README.md). To measure your own project, see [`scripts/benchmark/README.md`](../../scripts/benchmark/README.md#tdk-up-warm-start-benchmark).
 
 ## File Structure
 
@@ -231,20 +244,18 @@ tdk/
 ├── docker/
 │   ├── golden.Dockerfile          # Auto-generated base image
 │   └── README.md                   # Usage guide
-├── .tilt/
-│   ├── providers/
-│   │   └── docker/
-│   │       ├── golden-image.star  # Provider implementation
-│   │       ├── index.star         # Exports GoldenImage
-│   │       └── layers/
-│   │           └── l1_base_layers.star  # Uses golden image
-│   ├── lifecycle/
-│   │   ├── infra-loader.star      # Builds golden image
-│   │   └── orchestrator/
-│   │       └── apply.star         # Adds resource deps
-│   └── core/
-│       └── registry/
-│           └── config.star        # DEFAULTS configuration
+├── engine/topologies/
+│   ├── platform/docker/
+│   │   ├── build/golden_image.star  # Provider implementation
+│   │   ├── index.star               # Exports GoldenImage
+│   │   └── layers/
+│   │       └── l1_base_layers.star  # Uses golden image
+│   └── tilt/
+│       ├── config/global.star       # DEFAULTS configuration
+│       └── resources/
+│           ├── infra-loader.star    # Builds golden image
+│           └── orchestrator/
+│               └── apply.star       # Adds resource deps
 └── Tiltfile                        # Main integration
 ```
 
@@ -315,7 +326,7 @@ def L4_generate_orchestrator(res_path, use_golden_image = True, ...):
     ...
 ```
 
-**In service manifest** (`.tilt/service.manifest.json`):
+**In service manifest** (`service.json`):
 ```json
 {
   "useGoldenImage": false

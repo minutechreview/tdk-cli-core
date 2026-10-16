@@ -1,4 +1,4 @@
-# TDK CLI — start services on your laptop
+# TDK CLI — start services on your machine
 
 [![npm version](https://img.shields.io/npm/v/@tdk-landscape/tdk-cli-core.svg?style=flat&color=blue)](https://www.npmjs.com/package/@tdk-landscape/tdk-cli-core)
 [![unpacked size](https://img.shields.io/npm/unpacked-size/@tdk-landscape/tdk-cli-core)](https://packagephobia.com/result?p=@tdk-landscape/tdk-cli-core)
@@ -29,7 +29,7 @@ No vendor lock-in. No tedious plumbing. Run a single command to natively orchest
 * **Messaging & Gateway:** NATS, Traefik
 
 
-TDK CLI — start services on your laptop. It is not a deploy and not a Compose file: define each service in `service.json`, then run `tdk up`. No Kubernetes is needed on the machine.
+TDK CLI — start services on your machine. It is not a deploy and not a Compose file: define each service in `service.json`, then run `tdk up`. No Kubernetes is needed on the machine.
 
 Stability: 1.x local dev. Write `service.json`; TDK generates the local runtime files. See [what TDK writes](docs/generated-files.md) and how to check for drift. Core CLI is MIT and needs no key. Premium is optional.
 
@@ -37,7 +37,16 @@ Docker runs the containers. Tilt watches services and live-updates containers wh
 
 [Website](https://tdk-landscape.github.io/tdk-website/) · [Quickstart](https://tdk-landscape.github.io/tdk-website/docs/quickstart/) · [Examples](https://tdk-landscape.github.io/tdk-website/docs/examples/) · [Awesome TDK](https://github.com/tdk-landscape/awesome-tdk-framework) · [Demo](https://tdk-landscape.github.io/tdk-demo-animation/) · [Report a bug](https://github.com/tdk-landscape/tdk-cli-core/issues)
 
+If TDK helps you run your local stack, a ⭐ on [this repo](https://github.com/tdk-landscape/tdk-cli-core) helps other developers find it.
+
 `tdk ui` opens an interactive terminal dashboard for inspecting running services. Move with `↑/↓` or `j/k`, search with `/`, and press `1`–`5` to jump between tabs. See [docs/ui.md](docs/ui.md) for every key binding.
+
+## Why TDK CLI?
+
+- **One `service.json` per service.** TDK generates the Dockerfile, Traefik routing, and Tiltfile from it. You do not hand-write a `docker-compose.yml` or `nginx.conf`.
+- **Local stack without Kubernetes.** Services run on Docker and Tilt on your machine. You do not need a local cluster such as kind or minikube.
+- **Hot reload while you code.** Tilt live-updates the containers when files change.
+- **Generated files you can check.** `tdk` records the generated files and reports drift, so local config stays in sync. See [generated files and drift checks](docs/generated-files.md).
 
 ## Who uses TDK
 
@@ -52,10 +61,10 @@ mkdir shop && cd shop
 tdk project --yes
 tdk resource orders-api --type backend --stack shop --yes
 tdk up shop
-curl http://api.shop.localhost:8080/api/orders/health
+curl http://api.shop.localhost/api/orders/health
 ```
 
-`tdk up` prints the host ports it chose. Port 8080 is the default; if it was taken, use the HTTP port `tdk up` reports (or set `TDK_HTTP_PORT`). A resource named `orders-api` is served at `/api/orders` (a trailing `-api` is dropped); `tdk up` prints the exact URLs.
+`tdk up` prints the host ports it chose. It uses port 80 when it is free, so URLs carry no port. Otherwise it picks one from 8080-8180, and the URLs it prints include that port (on Linux and WSL2 a non-root user cannot check port 80, so the range is used there). Use the URL `tdk up` prints, or set `TDK_HTTP_PORT`. A resource named `orders-api` is served at `/api/orders` (a trailing `-api` is dropped); `tdk up` prints the exact URLs.
 
 ![TDK scaffolding a backend and a frontend, then listing the stack](docs/assets/demo.svg)
 
@@ -141,6 +150,8 @@ Set `TDK_DEBUG=1` before running `tdk up --verbose` to include Starlark debug lo
 - [Show HN draft](docs/drafts/show-hn.md)
 - [Architecture and repository map](docs/project-overview.md)
 - [Scale fixture measurements and caveats](docs/benchmarks/scale-bench.md)
+- [Benchmark report: warm and cold start charts, history](https://tdk-landscape.github.io/tdk-cli-core/) (updated on every change to `main` that affects start-up)
+- [How to run the start-time benchmark](scripts/benchmark/README.md#tdk-up-warm-start-benchmark)
 
 ## History
 

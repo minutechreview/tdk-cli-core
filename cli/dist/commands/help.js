@@ -3,7 +3,7 @@
 import chalk from "chalk";
 import pkg from "../../package.json" with { type: "json" };
 const TDK_BANNER = `
-  ${chalk.bold.cyan("tdk")} ${chalk.gray(`v${pkg.version}`)}  ${chalk.white("TDK CLI — start services on your laptop.")}
+  ${chalk.bold.cyan("tdk")} ${chalk.gray(`v${pkg.version}`)}  ${chalk.white("TDK CLI — start services on your machine.")}
 `;
 const COMMAND_GROUPS = [
     {
@@ -83,7 +83,7 @@ const COMMAND_GROUPS = [
                 alias: "--check-assets",
             },
             { name: "completion", desc: "Generate shell completions", alias: "--install --shell zsh" },
-            { name: "upgrade, update", desc: "Self-update to latest version", alias: "--force" },
+            { name: "upgrade, update", desc: "Self-update to latest version", alias: "--force --all" },
             { name: "version, -v", desc: "Display version number", alias: "" },
             { name: "help", desc: "Show help", alias: "[command]" },
         ],
@@ -136,6 +136,7 @@ export function showHelp() {
   ${chalk.cyan("$")} tdk networks                      # Show Traefik-routed URLs
   ${chalk.cyan("$")} tdk doctor                        # Check your environment
   ${chalk.cyan("$")} tdk upgrade                       # Self-update
+  ${chalk.cyan("$")} tdk upgrade --all                 # Update all TDK installs on PATH
   `));
     console.log(chalk.gray(`  ${"═".repeat(50)}`));
     console.log(chalk.gray(`  For more help: ${chalk.cyan("tdk help [command]")}`));

@@ -1,6 +1,6 @@
-# 🚀 TDK CLI — start services on your laptop
+# 🚀 TDK CLI — start services on your machine
 
-TDK CLI — start services on your laptop. It is not a deploy and not a Compose file. Define services in `service.json`, then run `tdk up`. No Kubernetes is needed on the machine. If your existing Helm, Compose, or Tilt workflow already works locally, keep using it.
+TDK CLI — start services on your machine. It is not a deploy and not a Compose file. Define services in `service.json`, then run `tdk up`. No Kubernetes is needed on the machine. If your existing Helm, Compose, or Tilt workflow already works locally, keep using it.
 
 > Command reference for the `tdk` CLI. See the **[main README](../README.md)** for onboarding and the **[Helm handoff guide](../docs/with-helm.md)** for the local-development/production boundary.
 
@@ -142,6 +142,8 @@ must pass `--stack`. Without `--yes`, prompt answers can still be supplied on st
 
 `service.json` files point to the published [JSON Schema](https://tdk-landscape.github.io/schema.service.json) for editor autocomplete and validation. The schema source is [`engine/schemas/service-schema.json`](../engine/schemas/service-schema.json); it documents supported service fields and known `featuresEnabled` names. Legacy manifests may use `type` in place of `appType`.
 
+See the complete [`service.json` field reference](../docs/service-json.md) for field defaults, resource applicability, validation behavior, and backend/frontend examples.
+
 Backend creation defaults to Bun + Hono, exactly as it always has: omit `--language` and nothing changes. Use `--language python` for FastAPI on Python 3.12, `--language go` for a standard-library `net/http` service on Go 1.23, or `--language rust` for an axum service (Go and Rust have no live reload: Tilt rebuilds the image on change). The selected id is saved as `language` in `service.json`; a legacy manifest without it still means Bun and is never rewritten. The flag applies only to `--type backend`, and unknown ids fail before a resource is written. On the Bun runtime the HTTP framework is Hono by default. To use another, pass one of these to `--framework`:
 
 | Id | Framework |
@@ -180,7 +182,7 @@ The frontend provider owns root `index.html` and starter source. After TDK gener
 |---------|-------------|
 | `tdk ui [--high-contrast] [--no-animations]` | 🎨 Interactive terminal UI |
 | `tdk networks` | 🌐 Show Traefik-routed URLs (`--stack`, `--json`, `--raw`) |
-| `tdk import [dir]` | 📥 Import the services a directory describes (`--dry-run`, `--yes`, `--force`) |
+| `tdk import [dir]` | 📥 Import the services in a directory's root `docker-compose.yml` (`--dry-run`, `--yes`, `--force`) |
 | `tdk eject` | 🚪 Write `EJECTED.md` describing the generated Tilt files; copies nothing (`--dry-run`, `--yes`) |
 | `tdk mcp` | 🤖 Run a Model Context Protocol server over stdio for coding agents |
 | `tdk config regenerate` | ♻️ Regenerate master config files from `.tdk/project.json` |
@@ -188,12 +190,15 @@ The frontend provider owns root `index.html` and starter source. After TDK gener
 | `tdk config enable-infra <service>` | ➕ Enable an optional infrastructure service (`disable-infra` to turn it off) |
 | `tdk doctor` | 🔍 Print ranked cold-start failures first, then check environment (Docker, Bun, Tilt, ports) |
 | `tdk completion --install` | ⌨️ Install shell completions (`--shell bash\|zsh\|fish`) |
-| `tdk upgrade` | ⬆️ Self-update to the latest version (`--dry-run`, `--force`) |
+| `tdk upgrade` | ⬆️ Self-update to the latest version (`--dry-run`, `--force`, `--all`) |
 | `tdk version` | ℹ️ Show version |
 | `tdk --help` | ❓ Show help |
 
 `-v` is context-specific: `tdk -v` prints the version, while `tdk up -v` and `tdk down -v`
 enable verbose output. Use `--version` and `--verbose` when clarity matters.
+
+`tdk status` and `tdk ui` poll Tilt on `TILT_PORT` when it contains only decimal digits
+and is in the range 1–65535. Missing or invalid values fall back to port 10350.
 
 Use `tdk ui --high-contrast` for a brighter palette with clearer text hierarchy
 and no dimmed secondary text. `tdk ui --no-animations` keeps the loading screen
@@ -317,6 +322,9 @@ Checks for:
 
 - `--no-ping`: Skip pinging running services' `/health` endpoints. Useful when checking host tools or static configurations without probing runtime services.
 - `--ping-timeout <ms>`: Per-service health check timeout in milliseconds (must be a positive integer, defaults to `5000`).
+- `--fix`: Before the checks run, remove unused Docker networks that belong to this project (the exact names `tdk up` creates) and leftover `tdk_doctor_probe_*` networks from interrupted runs. Asks before each removal. Never touches another project's networks, never runs `sudo`.
+- `--dry-run`: With `--fix`, list the commands without running them.
+- `-y, --yes`: With `--fix`, run every repair without asking. Without a terminal and without `--yes`, repairs are skipped.
 
 When checks fail, `tdk doctor` prints each issue with `✗` in red. It prints `ℹ Fix: ...` when a check provides remediation.
 The general Tilt-resource fix points to the URL printed by `tdk up`; the default port can be auto-switched when occupied, and `TILT_PORT` can override it.
@@ -328,7 +336,7 @@ The general Tilt-resource fix points to the URL printed by `tdk up`; the default
 
 ### Container footprint
 
-Generated runtimes are sized so large landscapes fit on a 16 GB laptop:
+Generated runtimes are sized so large landscapes fit on a 16 GB machine:
 
 - **One process per container.** A service whose `start` script is just `bun run <file>` runs `bun <file>` directly under Docker's init (`init: true`). Any other `start` script keeps `bun run start`.
 - **Healthchecks:** every 2 s during startup, then every 30 s. You can override the timing for a run:
@@ -356,7 +364,7 @@ scripts/measure-idle-footprint.sh finance-autogenerated-cash-management-api-1
 
 After `tdk project` + `tdk resource`:
 
-```
+```text
 my-project/
 ├── ⚙️ TILT_RESOURCE_DEFAULTS.star
 ├── 🔧 TILT_TECH_STACK.star
@@ -405,7 +413,7 @@ tdk eject --help
 tdk import --help
 ```
 
-To bring an existing repo in (Procfile, Compose, Dockerfile, `package.json`), `tdk import` runs [tdk-import](https://github.com/tdk-landscape/tdk-import) (it needs `npx`). Flags such as `--dry-run`, `--yes`, `--force` and `--only` go straight to it.
+To bring an existing Compose repo in, `tdk import` runs [tdk-import](https://github.com/tdk-landscape/tdk-import) on the root `docker-compose.yml` (it needs `npx`). Flags `--dry-run`, `--yes` and `--force` go straight to it.
 
 ---
 
@@ -428,7 +436,7 @@ To bring an existing repo in (Procfile, Compose, Dockerfile, `package.json`), `t
 
 <div align="center">
 
-**[⬆️ Back to Top](#-tdk-cli-reference)**
+**[⬆️ Back to Top](#-tdk-cli--start-services-on-your-machine)**
 
 Made with 💚 for developers who ship
 

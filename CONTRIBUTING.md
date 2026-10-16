@@ -15,6 +15,22 @@ The focused [frontend provider guide](docs/frontend-framework-providers.md) has 
 
 ## Quick setup
 
+**Fastest way (recommended):** open the repository in a ready-to-use environment.
+
+[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/tdk-landscape/tdk-cli-core?quickstart=1)
+
+Or in VS Code: clone the repo, then **Dev Containers: Reopen in Container**.
+
+The lightweight Dev Container provides Node.js 22 and Bun and runs `bun install` automatically. Most CLI changes only need:
+
+```bash
+bun run typecheck && bun run lint && bun run test
+```
+
+Docker and Tilt are **not** included in the default container (they are only needed when you want to try a full `tdk up`). See `.devcontainer/devcontainer.json` and the optional notes in the contributor guide if you need the heavier path.
+
+**Local install (alternative):**
+
 You need Git, [Bun](https://bun.sh) and Node.js 22.12+. Docker and Tilt are not needed for most changes.
 
 ```bash
@@ -40,6 +56,17 @@ The full steps for reviewers, including what to look at, are in [docs/contributi
 ## Tests
 
 Every new feature or behavior change needs automated tests in the same pull request. Put tests next to the code they cover, or in the existing suite for that area (`cli/src/**/__tests__/`, `tests/fuzz/`). A bug fix adds a test that fails before the fix and passes after it. If a test is not practical, the pull request says why and links an issue that tracks adding it. Reviewers check this in every pull request, and the checks listed in [03-open-a-pr.md](docs/contributing/03-open-a-pr.md#run-the-checks-for-your-change) run the suite in CI.
+
+Run focused checks from the repository root while you work, then use `make test` as the comprehensive pre-PR entry point:
+
+| I changed | Run |
+| --- | --- |
+| TypeScript or CLI logic | `make test-ts` |
+| Python code, generators or Starlark-related logic | `make test-python` |
+| Shell verification scripts | `make test-shell` |
+| Multiple areas or anything before a PR | `make test` |
+
+The TypeScript target requires Bun and Node.js 22.12+. The Python target requires the packages in `tests/requirements.txt`; it includes the known clean-checkout failures tracked in [#700](https://github.com/tdk-landscape/tdk-cli-core/issues/700) rather than hiding or skipping them. The shell target only runs Bash syntax validation on `scripts/verify-*.sh`. Run an affected verification script separately when you need its real integration coverage; those scripts document their own arguments and may require Docker, Tilt, a built CLI or network access.
 
 ## Find bugs
 

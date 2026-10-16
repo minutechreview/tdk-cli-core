@@ -40,7 +40,7 @@ Here is valid JSON; the explanations are outside the file so it remains parseabl
 
 - Once Tilt is up, `tdk up` sends each step to the service's public base URL (`http://api.<project>.localhost[:port]/api/<name>` for a backend, `mcp` or bring-your-own service, `http://app.<project>.localhost[:port]/<name>` for a frontend), the same URL `tdk up` prints. `path` must start with `/`; a full URL or relative path is rejected, because it would skip the proxy.
 - `expect` is the status (default 200). `bodyContains` is optional. `save` copies a response field (`$.id`, `$.data.items[0].id`) into `{{id}}` for later steps, in the path and in string values of `body`.
-- Before the first step, `tdk up` polls `GET <public URL><healthCheckPath>` (default `/health` for backend and `mcp` services; none for frontends and bring-your-own without `healthCheckPath`) until something other than a connection error, 404 or a 5xx answers, so a write is never the first request to reach a service that is still building or migrating. The wait has its own `timeoutSeconds` budget, and the steps then get a fresh one. If the service never answers, the first step runs anyway and reports the failure.
+- Before the first step, `tdk up` polls `GET <public URL><healthCheckPath>` (default `/health` for backend and `mcp` services; none for frontends and bring-your-own without `healthCheckPath`, which is the setting for a service that is not HTTP) until something other than a connection error, 404 or a 5xx answers, so a write is never the first request to reach a service that is still building or migrating. The wait has its own `timeoutSeconds` budget, and the steps then get a fresh one. If the service never answers, the first step runs anyway and reports the failure.
 - A 404, 502, 503 or 504 means the route is not up yet and is retried for `timeoutSeconds` (default 60). A thrown error is retried for GET, HEAD and OPTIONS; for a write (POST, PUT, ...) only when the error proves the request was never sent (connection refused, DNS failure), never after a timeout or reset, which may have reached the service. Any other wrong status fails at once, so a write is never repeated.
 - A failed step stops Tilt, prints the service, step, URL, method, status and a body snippet, and makes `tdk up` exit non-zero. The containers are left running for inspection; `tdk down` removes them.
 - Every step that ran leaves a record under `.tdk/smoke/<service>/<step-slug>/` (`<step-slug>` is the lowercased step name, or `step-N` when unnamed). `latest.json` holds the service, step, method, public URL, expected and actual status, `truncated`, the byte length and the body file name; `body.txt` holds the response body, capped at 64 KiB (`truncated: true` when the cap cut it). A step that got no response (after retries) writes `latest.json` with `status: null` and the error code, and no body file. When a step passes, `last-success.json` and `last-success-body.txt` are replaced with that response; a failure never touches them, so a later regression can be compared with the last good response (`diff last-success-body.txt body.txt`). The failure line ends with `(record: <path to latest.json>)`. The directory is gitignored (`tdk project` adds `.tdk/smoke/`), `tdk down` leaves it, and nothing is uploaded from your machine. Bodies are kept as the service returned them, with no redaction; request headers and cookies are not stored.
@@ -72,6 +72,47 @@ For VS Code, associate both filenames with their schema in workspace settings. T
 ```
 
 The service schema is also in [`engine/schemas/service-schema.json`](../engine/schemas/service-schema.json), and the current project configuration schema is [`engine/schemas/project-schema.json`](../engine/schemas/project-schema.json). Run `tdk config verify` to check generated project files, validate discovered service manifests, and compare generated service files with their snapshots. It does not validate Helm values. `tdk doctor` checks local readiness and service concerns. See [generated service files](generated-files.md).
+
+### Which diagnostic command should I run?
+
+Use `tdk doctor` to check whether your development environment is ready. Use `tdk config verify` to validate project configuration and check generated-file consistency. These commands answer different questions and are not substitutes for each other.
+
+| What you want to check | Command | What it helps identify |
+| --- | --- | --- |
+| Local environment readiness | `tdk doctor` | Missing tools, Docker readiness, port conflicts, and reported service or environment issues |
+| Project configuration and generated-file consistency | `tdk config verify` | Invalid service manifests, missing or out-of-sync generated project files, and generated service-file drift |
+
+#### Example: Check environment readiness
+
+If TDK cannot start your development environment, run:
+
+```sh
+tdk doctor
+```
+
+Review the reported checks and suggested fixes. For example, if Docker is not running, start Docker Desktop or another supported container runtime and run the command again.
+
+See the [doctor readiness contract](reference/doctor-contract.md) for the exact checks, exit codes, and JSON output.
+
+#### Example: Check configuration consistency
+
+If you suspect your configuration or generated files are out of sync, run:
+
+```sh
+tdk config verify
+```
+
+Review any validation errors or reported differences. For example, if a generated project file has been edited manually, verification can report that it is out of sync and show a diff. Use the reported remediation guidance to address the problem; verification does not automatically regenerate files.
+
+For example, verification may report an out-of-sync generated file and recommend running:
+
+```sh
+tdk config regenerate
+```
+
+Regenerate only after reviewing the reported differences and confirming that regeneration is appropriate for your changes.
+
+See the [machine-readable CLI reference](reference/machine-readable-cli.md) for the verification result fields and exit behavior. For generated-file drift and regeneration guidance, see [generated service files](generated-files.md).
 
 ### The service schema and how it is published
 

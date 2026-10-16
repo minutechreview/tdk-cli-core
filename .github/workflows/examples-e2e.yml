@@ -4,7 +4,7 @@
 # and an HTML page from each frontend. It backs the claim that TDK runs a real
 # app, not just generated health-check stubs.
 #
-# Manual and weekly. Separate from the ERP scale test on purpose: different
+# Manual and daily (04:00 UTC). Separate from the ERP scale test on purpose: different
 # size, different timeout, and "healthy" means something else here.
 name: 🍽️ Example apps E2E
 
@@ -16,7 +16,7 @@ on:
         type: string
         default: ""
   schedule:
-    - cron: "0 4 * * 1"
+    - cron: "0 4 * * *"
 
 permissions:
   contents: read
@@ -104,6 +104,19 @@ jobs:
         run: |
           tdk project --yes
           tdk doctor
+
+      - name: Install frontend dependencies for the host typecheck
+        # Frontends with a typecheck script get a host-side <service>-typecheck
+        # resource in Tilt. It runs tsc on the runner, not in the image, so the
+        # service's node_modules must exist here (tsc needs vite/client types).
+        # Without this it fails with TS2688 on a clean checkout.
+        working-directory: example
+        run: |
+          for pkg in $(grep -l '"typecheck"' services/*/*/package.json 2>/dev/null || true); do
+            echo "::group::bun install in $(dirname "$pkg")"
+            (cd "$(dirname "$pkg")" && bun install)
+            echo "::endgroup::"
+          done
 
       - name: tdk up, then prove the real routes answer
         working-directory: example

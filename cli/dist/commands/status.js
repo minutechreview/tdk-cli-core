@@ -10,8 +10,10 @@ import { getHostPortPlan } from "../utils/host-port-config.js";
 import { createMachineEnvelope, writeMachineError } from "../utils/machine-output.js";
 import { findProjectRoot } from "../utils/paths.js";
 import { deriveServiceStates } from "../utils/service-runtime-state.js";
+import { groupSharedPostgres, readProjectName } from "../utils/shared-infra.js";
 import { buildServicePorts, buildStackPorts } from "../utils/status-ports.js";
-import { getTiltfilePath, isTiltAvailable, runTilt } from "../utils/tilt.js";
+import { isTiltAvailable, runTilt } from "../utils/tilt.js";
+import { getTiltPollingPort } from "../utils/tilt-startup.js";
 import { evaluateTiltReadiness, tiltGetUiResources } from "../utils/up-readiness.js";
 export const statusCommand = new Command("status")
     .description("Show status of resources and stacks")
@@ -24,6 +26,11 @@ export const statusCommand = new Command("status")
     const action = async () => {
         // Discover first: outside a project this fails before any status line is printed.
         const discovery = createDiscoveryContext();
+        const projectRoot = findProjectRoot();
+        const projectName = projectRoot ? readProjectName(projectRoot) : null;
+        const sharedInfraGroup = projectName
+            ? groupSharedPostgres(projectName, discovery.stacks)
+            : null;
         let tiltAvailable = false;
         try {
             tiltAvailable = await isTiltAvailable();
@@ -42,30 +49,28 @@ export const statusCommand = new Command("status")
         }
         let tiltResources = null;
         let queryError = null;
-        if (options.json && options.tilt && tiltAvailable) {
-            const result = await runTilt("get", ["-f", getTiltfilePath(), "resources", "--output=json"], {
-                inheritStdio: false,
-            });
-            if (result.exitCode === 0) {
-                try {
-                    tiltResources = JSON.parse(result.stdout);
-                }
-                catch (error) {
-                    queryError = `Tilt returned invalid JSON: ${error instanceof Error ? error.message : String(error)}`;
-                }
-            }
-            else {
-                queryError = result.stderr || "Could not retrieve Tilt resource status";
-            }
-        }
         // A single look at the running Tilt, so a caller that started `tdk up` detached can poll for readiness. Null when no
         // Tilt answers or its output cannot be read.
         let readiness = null;
         // The same look at Tilt feeds readiness and each service's state, so `tdk status` and `tdk ui` cannot disagree.
         let serviceStates = null;
+        const tiltPort = getTiltPollingPort(process.env.TILT_PORT);
         if (tiltAvailable) {
-            const port = Number.parseInt(process.env.TILT_PORT ?? "", 10);
-            const text = await tiltGetUiResources(Number.isInteger(port) ? port : 10350);
+            const text = await tiltGetUiResources(tiltPort);
+            // `tilt get` has no -f flag; resources come from the running Tilt's API on its port, the same source as readiness.
+            if (options.json && options.tilt) {
+                if (text) {
+                    try {
+                        tiltResources = JSON.parse(text);
+                    }
+                    catch (error) {
+                        queryError = `Tilt returned invalid JSON: ${error instanceof Error ? error.message : String(error)}`;
+                    }
+                }
+                else {
+                    queryError = `No Tilt is answering on port ${tiltPort}. Start it with: tdk up`;
+                }
+            }
             if (text) {
                 const deferred = getDeferredResourceNames();
                 try {
@@ -115,13 +120,14 @@ export const statusCommand = new Command("status")
                         ? { blockedBy: serviceStates[resource.name]?.blockedBy }
                         : {}),
                 })),
-                ports: buildStackPorts(portPlan, process.env.TILT_PORT ? Number.parseInt(process.env.TILT_PORT, 10) : undefined),
+                ports: buildStackPorts(portPlan, tiltPort),
                 stacks: discovery.stacks.map((stack) => ({
                     name: stack.name,
                     resourceCount: stack.resourceCount,
                     resources: stack.resources.map((resource) => resource.name),
                 })),
                 unassignedResources: discovery.unassignedResources.map((resource) => resource.name),
+                sharedInfra: sharedInfraGroup,
             };
             console.log(JSON.stringify(createMachineEnvelope(data, errors)));
             if (errors.length > 0) {
@@ -152,6 +158,14 @@ export const statusCommand = new Command("status")
                 }
             }
         }
+        if (sharedInfraGroup) {
+            console.log();
+            console.log(chalk.bold("Shared infrastructure:"));
+            showDetail(`${sharedInfraGroup.name} (one instance, ${formatCount(sharedInfraGroup.databases.length, "database")})`);
+            for (const database of sharedInfraGroup.databases) {
+                showDetail(`  ${database.name} (stack ${database.stack}): ${database.services.join(", ")}`);
+            }
+        }
         if (serviceStates && Object.keys(serviceStates).length > 0) {
             console.log();
             console.log(chalk.bold("Services:"));
@@ -170,15 +184,14 @@ export const statusCommand = new Command("status")
         if (options.tilt && tiltAvailable) {
             console.log();
             showStep("Tilt Resources:");
-            const tiltfilePath = getTiltfilePath();
-            const result = await runTilt("get", ["-f", tiltfilePath, "resources"], {
+            const result = await runTilt("get", ["uiresources", "--port", String(tiltPort)], {
                 inheritStdio: false,
             });
             if (result.exitCode === 0) {
                 console.log(result.stdout || chalk.gray("  No active tilt resources"));
             }
             else {
-                showDetail("Could not retrieve tilt resource status");
+                showDetail(`No Tilt is answering on port ${tiltPort}. Start it with: tdk up`);
             }
         }
         console.log();

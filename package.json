@@ -1,7 +1,7 @@
 {
   "name": "@tdk-landscape/tdk-cli-core",
-  "version": "1.3.130",
-  "description": "TDK CLI — start services on your laptop.",
+  "version": "1.3.151",
+  "description": "TDK CLI — start services on your machine.",
   "homepage": "https://tdk-landscape.github.io/tdk-website",
   "repository": {
     "type": "git",
@@ -67,7 +67,12 @@
     "monorepo",
     "hot-reload",
     "bun",
-    "kubernetes-alternative"
+    "kubernetes-alternative",
+    "docker-compose-alternative",
+    "live-reload",
+    "no-kubernetes",
+    "service-orchestration",
+    "tiltfile"
   ],
   "license": "MIT",
   "dependencies": {

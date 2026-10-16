@@ -38,12 +38,15 @@ def generate_golden_dockerfile():
 # This Dockerfile builds 8 golden images:
 #   - """ + prefix + """-l1:latest - OS base + Bun runtime
 #   - """ + prefix + """-l2:latest - Dependencies installed
-#   - """ + prefix + """-l3-backend:latest - Backend build tools (Prisma, no Infisical CLI)
+#   - """ + prefix + """-l3-backend:latest - Backend and migrator build tools (Prisma, no Infisical CLI)
 #   - """ + prefix + """-l3-frontend:latest - Frontend build tools (no Prisma)
-#   - """ + prefix + """-l3-migrator:latest - Migrator build tools (Prisma, no Infisical CLI)
-#   - """ + prefix + """-l4-backend:latest - Backend production runtime
+#   - """ + prefix + """-l4-backend:latest - Backend production runtime (Bun)
+#   - """ + prefix + """-l4-backend-node:latest - Backend production runtime (Node.js)
 #   - """ + prefix + """-l4-frontend:latest - Frontend production runtime (Nginx)
 #   - """ + prefix + """-l4-migrator:latest - Migrator production runtime
+#
+# Migrators build on l3-backend: a separate l3-migrator stage installed the same Prisma
+# and produced identical layers under a second image name.
 #
 # Services use these as base images to skip heavy dependency installation.
 #
@@ -140,28 +143,6 @@ RUN echo "Bun version: $(bun --version)"
 
 
 # =============================================================================
-# L3-MIGRATOR: MIGRATOR BUILD TOOLS (PRISMA)
-# =============================================================================
-FROM l2_golden AS l3_migrator_golden
-
-LABEL layer="l3-migrator" \
-      description="Migrator build tools with Prisma" \
-      maintainer="{prefix}"
-
-# Install Prisma CLI globally (required for migrations, pinned)
-RUN bun add -g prisma@7.5.0 @prisma/client@7.5.0
-
-# Verify Prisma installation
-RUN echo "Prisma version: $(bunx prisma --version | head -1)"
-
-# ⚠️ CRITICAL: Infisical CLI is NOT installed in golden L3 images
-# Reason: curl to dl.cloudsmith.io hangs during Docker builds when CDN is slow
-# Solution: Use SKIP_INFISICAL_SETUP=1 build arg or runtime env var injection
-# Services read secrets from environment variables at runtime (no CLI needed)
-# See: .tilt/topologies/platform/docker/layers/l3_builder_layers.star
-
-
-# =============================================================================
 # L4-BACKEND-BUN: BACKEND PRODUCTION RUNTIME (BUN)
 # =============================================================================
 FROM l1_golden AS l4_backend_bun
@@ -184,9 +165,10 @@ ENV BUN_OPTIONS=--smol
 
 USER bun
 
-# Backend-specific healthcheck (checks Bun runtime)
+# Backend-specific healthcheck: probes the service over HTTP. The image is shared by every backend,
+# so the port and path come from the container env (PORT is set by compose, TDK_HEALTH_PATH is optional).
 HEALTHCHECK {hc_flags} \
-  CMD bun --version || exit 1
+  CMD bun -e "fetch('http://127.0.0.1:'+process.env.PORT+(process.env.TDK_HEALTH_PATH||'/health')).then(r=>process.exit(r.ok?0:1),()=>process.exit(1))" || exit 1
 
 WORKDIR /app
 
@@ -213,9 +195,9 @@ RUN addgroup -S app && adduser -S app -G app
 
 USER app
 
-# Backend-specific healthcheck (checks Node.js runtime)
+# Backend-specific healthcheck: probes the service over HTTP (port and path from container env, see the Bun stage)
 HEALTHCHECK {hc_flags} \
-  CMD node --version || exit 1
+  CMD node -e "fetch('http://127.0.0.1:'+process.env.PORT+(process.env.TDK_HEALTH_PATH||'/health')).then(r=>process.exit(r.ok?0:1),()=>process.exit(1))" || exit 1
 
 WORKDIR /app
 
@@ -256,8 +238,8 @@ LABEL layer="l4-migrator" \
 
 ENV NODE_ENV=production
 
-# Copy global Prisma installation from L3
-COPY --from=l3_migrator_golden /root/.bun/install/global /root/.bun/install/global
+# Copy global Prisma installation from L3 (l3-backend carries the same pinned Prisma)
+COPY --from=l3_backend_golden /root/.bun/install/global /root/.bun/install/global
 
 # ⚠️ Infisical CLI is NOT included in golden L4 images
 # The migrator reads secrets directly from environment variables at runtime

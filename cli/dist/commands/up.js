@@ -1,10 +1,11 @@
 // Copyright (c) 2026 TDK Landscape contributors
 // SPDX-License-Identifier: MIT
+import { existsSync } from "node:fs";
 import { connect } from "node:net";
 import { join } from "node:path";
 import chalk from "chalk";
 import { Command } from "commander";
-import { ensureProjectRuntimeAssets, ProjectConfigNotFoundError, verifyMasterConfigs, } from "../generator/template-engine.js";
+import { ensureProjectRuntimeAssets, generateMasterConfigs, ProjectConfigNotFoundError, verifyMasterConfigs, } from "../generator/template-engine.js";
 import { DEVCONTAINER_DOCKER_FIX, detectHost, isContainerHost, WEBCONTAINER_UP_MESSAGE, } from "../utils/agent-host.js";
 import { handleDryRun } from "../utils/command-helpers.js";
 import { STANDARD_PORTS } from "../utils/constants.js";
@@ -28,6 +29,7 @@ import { buildSmokePlans, formatSmokeFailure, runSmokePlans } from "../utils/smo
 import { buildStartupReport, formatStartupReport, isStartupStalled, } from "../utils/startup-report.js";
 import { evaluateTdkVersionFloor } from "../utils/tdk-version.js";
 import { buildTiltUpArgs, runTilt } from "../utils/tilt.js";
+import { findTiltPortOwner, isForeignTilt } from "../utils/tilt-port-owner.js";
 import { stopTiltOnPort } from "../utils/tilt-process.js";
 import { parseTiltPort, resolveTiltPort, secondUpAction, stopTiltForUp, } from "../utils/tilt-startup.js";
 import { findUnknownServices, resolveOnlySelection } from "../utils/up-only.js";
@@ -256,6 +258,14 @@ export const upCommand = new Command("up")
                     console.log(chalk.gray(`Added ${addedEnvKeys.join(", ")} to .env (generated; existing values unchanged)`));
                 }
             }
+            // A project made by `tdk import` has .tdk/project.json but no generated files yet. Generate them rather than letting
+            // Tilt fail on a missing Tiltfile.
+            if (foundRoot && !existsSync(join(projectRoot, ".tdk", ".tdk-out", "Tiltfile"))) {
+                if (!options.quiet) {
+                    console.log(chalk.gray("No generated Tiltfile yet; generating .tdk/.tdk-out/ ..."));
+                }
+                await generateMasterConfigs(projectRoot, { quiet: options.quiet });
+            }
             const copiedAssets = ensureProjectRuntimeAssets(projectRoot);
             if (copiedAssets.length > 0 && options.verbose && !options.quiet) {
                 console.log(chalk.gray(`Refreshed runtime assets: ${copiedAssets.join(", ")}`));
@@ -360,13 +370,35 @@ export const upCommand = new Command("up")
         const watchedPort = configuredTiltPort ?? basePort;
         const candidatePorts = options.only ? [...new Set([basePort, watchedPort])] : [watchedPort];
         const running = [];
+        const foreign = [];
         for (const candidate of candidatePorts) {
-            if ((await tiltGetUiResources(candidate)) !== null)
+            if ((await tiltGetUiResources(candidate)) === null)
+                continue;
+            // A Tilt on this port may belong to another project; that is not "this environment is running".
+            const owner = findTiltPortOwner(candidate);
+            if (owner && isForeignTilt(owner, projectRoot)) {
+                foreign.push({ port: candidate, root: owner.root });
+            }
+            else {
                 running.push(candidate);
+            }
         }
+        if (foreign.length > 0 && configuredTiltPort !== undefined) {
+            const other = foreign[0];
+            const message = `TILT_PORT=${other?.port} is used by another project's Tilt (${other?.root}). Choose a free port, or run tdk down in that project.`;
+            emit?.({ ok: false }, [{ code: "TILT_PORT_IN_USE", message }]);
+            showErrorAndExit(message);
+        }
+        if (!options.quiet) {
+            for (const other of foreign) {
+                console.log(chalk.yellow(`⚠️  Tilt on port ${other.port} belongs to another project (${other.root}); this project will use another port.`));
+            }
+        }
+        // --force replaces this project's Tilt; it must never stop another project's.
+        const force = options.force && foreign.length === 0;
         const decision = secondUpAction({
             runningPorts: running,
-            force: options.force,
+            force,
             only: Boolean(options.only),
         });
         if (decision.action === "already-running") {
@@ -391,7 +423,7 @@ export const upCommand = new Command("up")
         }
         const resolution = await resolveTiltPort({
             configuredPort: configuredTiltPort,
-            force: options.force,
+            force,
             basePort,
             findAvailablePort,
         });
@@ -401,7 +433,7 @@ export const upCommand = new Command("up")
             console.log(chalk.blue(`🔄 Auto-switching to port ${port}\n`));
         }
         process.env.TILT_PORT = port.toString();
-        await stopTiltForUp({ force: options.force, quiet: options.quiet, port }, {
+        await stopTiltForUp({ force, quiet: options.quiet, port }, {
             stop: stopTiltOnPort,
             log: (message) => console.log(chalk.yellow(message)),
             wait: (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),

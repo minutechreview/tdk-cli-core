@@ -1,10 +1,15 @@
 // Copyright (c) 2026 TDK Landscape contributors
 // SPDX-License-Identifier: MIT
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { join, resolve, sep } from "node:path";
 import { PROJECT_JSON } from "./constants.js";
-import { createHostPortPlan, type HostPortPlan, isHostPortAvailable } from "./host-port-plan.js";
+import {
+  createHostPortPlan,
+  type HostPortPlan,
+  isHostPortAvailable,
+  PREFERRED_HOST_PORTS,
+} from "./host-port-plan.js";
 
 const CONFIG_PATH = join(".tdk", ".tdk-out", "host-ports.json");
 
@@ -58,10 +63,63 @@ export function exportHostPortPlan(plan: HostPortPlan): void {
   process.env.TDK_POSTGRES_PORT = String(plan.postgres);
 }
 
+const COMPOSE_WORKING_DIR_LABEL = "com.docker.compose.project.working_dir";
+
+/**
+ * True when a container whose Compose working directory is inside this project publishes the port. A container-name prefix is not
+ * enough: tdk_shop_ also matches the containers of a different project called tdk-shop-extra. Compose records the directory each
+ * project was started from, so that identifies the project exactly. Containers without the label never count.
+ */
+export function isPortHeldByProjectContainers(
+  dockerPs: string,
+  projectRoot: string,
+  port: number,
+): boolean {
+  const roots = new Set([resolve(projectRoot)]);
+  try {
+    roots.add(realpathSync(projectRoot));
+  } catch {
+    // The project root is already known to exist; keep the unresolved path.
+  }
+  return dockerPs.split("\n").some((line) => {
+    const [, ports = "", workingDir = ""] = line.split("|");
+    if (!workingDir || !ports.includes(`:${port}->`)) return false;
+    return [...roots].some((root) => workingDir === root || workingDir.startsWith(`${root}${sep}`));
+  });
+}
+
+/**
+ * The HTTP ingress port to probe while a stack is running. getHostPortPlan moves a saved fallback port (8080) back to the
+ * preferred one (80) as soon as that is free, which is right for the next `tdk up` but wrong for a running stack: Traefik is still
+ * bound to the saved port, so probing the planned one finds nothing and every runtime check is skipped. When this project's own
+ * containers hold the saved port, probe that one.
+ */
+export function resolveRuntimeIngressPort(
+  projectRoot: string,
+  plannedPort: number | undefined,
+  readDockerPs: () => string = () =>
+    execFileSync(
+      "docker",
+      ["ps", "--format", `{{.Names}}|{{.Ports}}|{{.Label "${COMPOSE_WORKING_DIR_LABEL}"}}`],
+      { encoding: "utf-8", timeout: 5000 },
+    ),
+): number | undefined {
+  const saved = readSavedHostPortPlan(projectRoot);
+  if (!saved || saved.ingressHttp === plannedPort) return plannedPort;
+  try {
+    if (isPortHeldByProjectContainers(readDockerPs(), projectRoot, saved.ingressHttp)) {
+      return saved.ingressHttp;
+    }
+  } catch {
+    // Docker unavailable: keep the planned port.
+  }
+  return plannedPort;
+}
+
 /** Reuse this project's last selection when its ports are still free or held by its own containers. */
 export async function getHostPortPlan(
   projectRoot: string,
-  options: { inspectDocker?: boolean } = {},
+  options: { inspectDocker?: boolean; isPortFree?: (port: number) => Promise<boolean> } = {},
 ): Promise<HostPortPlan> {
   const saved = readSavedHostPortPlan(projectRoot);
   const hasOverride = ["TDK_HTTP_PORT", "TDK_HTTPS_PORT", "TDK_POSTGRES_PORT"].some(
@@ -91,11 +149,19 @@ export async function getHostPortPlan(
     }
   }
   const ownedByProject = (port: number) => isDockerPortOwnedByProject(dockerPs, prefix, port);
-  const isAvailable = async (port: number) =>
-    (await isHostPortAvailable(port)) || ownedByProject(port);
+  const isPortFree = options.isPortFree ?? isHostPortAvailable;
+  const isAvailable = async (port: number) => (await isPortFree(port)) || ownedByProject(port);
   if (saved && !hasOverride) {
     for (const port of [saved.ingressHttp, saved.ingressHttps, saved.postgres]) {
       if (!(await isAvailable(port))) return createHostPortPlan({ isAvailable });
+    }
+    // A plan saved on a fallback port (8080) moves back to the preferred one (80)
+    // once that is free, so URLs lose the port without deleting host-ports.json.
+    for (const [key, preferred] of Object.entries(PREFERRED_HOST_PORTS)) {
+      const savedPort = saved[key as keyof typeof PREFERRED_HOST_PORTS];
+      if (preferred !== undefined && savedPort !== preferred && (await isAvailable(preferred))) {
+        return createHostPortPlan({ isAvailable });
+      }
     }
     return saved;
   }

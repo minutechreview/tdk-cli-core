@@ -44,12 +44,17 @@ import { singleFlight } from "../utils/single-flight.js";
 import { createStatusMessageController } from "../utils/status-message.js";
 import { getListRowFromMouseY, getTerminalRuleWidth } from "../utils/terminal-layout.js";
 import { isTiltAvailable } from "../utils/tilt.js";
-import type { TiltEventSnapshot, TiltResourceSummary } from "../utils/tilt-events.js";
+import type {
+  TiltEventSnapshot,
+  TiltEventsFailureKind,
+  TiltResourceSummary,
+} from "../utils/tilt-events.js";
 import {
   loadTiltEvents,
   stripTerminalControls,
   TiltEventsLoadError,
 } from "../utils/tilt-events.js";
+import { getTiltPollingPort } from "../utils/tilt-startup.js";
 import { formatUiKeyHint, formatUiKeyNames, UI_KEYMAP } from "../utils/ui-keymap.js";
 import {
   applyServiceStates,
@@ -235,7 +240,7 @@ export const TUIApp: React.FC<{ animated?: boolean }> = ({ animated = true }) =>
   const [showEnabledOnly, setShowEnabledOnly] = useState(true);
   const [eventSnapshot, setEventSnapshot] = useState<TiltEventSnapshot | null>(null);
   const [eventLoadState, setEventLoadState] = useState<
-    "idle" | "loading" | "ready" | "unavailable" | "error"
+    "idle" | "loading" | "ready" | TiltEventsFailureKind
   >("idle");
   const [eventLoadError, setEventLoadError] = useState<string | null>(null);
   const eventRequestRef = useRef(0);
@@ -254,7 +259,7 @@ export const TUIApp: React.FC<{ animated?: boolean }> = ({ animated = true }) =>
   const [serviceStates, setServiceStates] = useState<ServiceStates>({});
   useEffect(() => {
     let cancelled = false;
-    const tiltPort = Number.parseInt(process.env.TILT_PORT ?? "", 10);
+    const tiltPort = getTiltPollingPort(process.env.TILT_PORT);
     // A Tilt call can outlast the 5 s interval; never start a poll while the last one is still running.
     const run = singleFlight<ServiceStates>((next) => {
       if (cancelled) return;
@@ -262,8 +267,7 @@ export const TUIApp: React.FC<{ animated?: boolean }> = ({ animated = true }) =>
         JSON.stringify(previous) === JSON.stringify(next) ? previous : next,
       );
     });
-    const poll = (): Promise<void> =>
-      run(() => fetchServiceStates(services, Number.isInteger(tiltPort) ? tiltPort : 10350));
+    const poll = (): Promise<void> => run(() => fetchServiceStates(services, tiltPort));
     void poll();
     const timer = setInterval(() => void poll(), 5000);
     return () => {
@@ -505,11 +509,13 @@ export const TUIApp: React.FC<{ animated?: boolean }> = ({ animated = true }) =>
       // Parse SGR 1006 mouse protocol: ESC[<btn;x;yM or ESC[<btn;x;ym
       // biome-ignore lint/suspicious/noControlCharactersInRegex: \\x1b ESC is intentional (ANSI SGR/CSI sequence parsing)
       const sgrMatch = str.match(/\x1b\[<(\d+);(\d+);(\d+)([Mm])/);
-      if (sgrMatch) {
-        const btn = parseInt(sgrMatch[1], 10);
-        // sgrMatch[2] is the x coordinate, which the handler does not use
-        const y = parseInt(sgrMatch[3], 10);
-        const release = sgrMatch[4] === "m";
+      const btnText = sgrMatch?.[1];
+      const yText = sgrMatch?.[3];
+      const action = sgrMatch?.[4];
+      if (btnText !== undefined && yText !== undefined && action !== undefined) {
+        const btn = parseInt(btnText, 10);
+        const y = parseInt(yText, 10);
+        const release = action === "m";
 
         // Check if it's a left click (btn & 0b11 == 0 means left button)
         const isLeftClick = (btn & 0b11) === 0;
