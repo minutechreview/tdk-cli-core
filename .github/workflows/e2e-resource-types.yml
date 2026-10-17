@@ -11,6 +11,10 @@ on:
         description: "CLI version to test (latest or exact version; local checkout is used for pull requests)"
         type: string
         default: ""
+      runner:
+        description: "Runner label for every job (default ubuntu-latest); try ubuntu-26.04 before ubuntu-latest moves to it (#1277)"
+        type: string
+        default: "ubuntu-latest"
   pull_request:
     branches: [main]
     paths:
@@ -45,7 +49,7 @@ jobs:
   plan:
     name: Plan the resource-type suites
     if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event.inputs.runner || 'ubuntu-latest' }}
     timeout-minutes: 3
     outputs:
       matrix: ${{ steps.matrix.outputs.matrix }}
@@ -65,16 +69,28 @@ jobs:
             workflow_run) trigger="release" ;;
             *) trigger="manual" ;;
           esac
-          matrix="$(node tests/e2e/lib/suite-matrix.mjs resource-types "$trigger")"
+          # Pull requests run the two most used backend languages; nightly, release and manual runs run every language the
+          # registry declares. The backend suite gets one leg per language.
+          # Framework legs (one bun leg per non-default HTTP framework) run with the full set, not on pull requests.
+          if [ "$trigger" = "pr" ]; then
+            languages="bun,python"
+            frameworks=""
+            frontends=""
+          else
+            languages="$(node tests/e2e/lib/registry-axes.mjs | jq -r '.language | join(",")')"
+            frameworks="$(node tests/e2e/lib/registry-axes.mjs | jq -r '.httpFramework | join(",")')"
+            frontends="$(node tests/e2e/lib/registry-axes.mjs | jq -r '.frontendFramework | join(",")')"
+          fi
+          matrix="$(node tests/e2e/lib/suite-matrix.mjs resource-types "$trigger" "$languages" "$frameworks" "$frontends")"
           echo "trigger=$trigger"
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
           echo "$matrix"
 
   resource-types:
-    name: 🤖 ${{ matrix.suite }}
+    name: resource-types / ${{ matrix.label }}
     needs: plan
     if: needs.plan.outputs.matrix != '{"include":[]}'
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event.inputs.runner || 'ubuntu-latest' }}
     timeout-minutes: ${{ matrix.timeoutMinutes }}
     strategy:
       fail-fast: false
@@ -139,6 +155,8 @@ jobs:
       - name: Run the suite
         env:
           SUITE: ${{ matrix.suite }}
+          LANGUAGE: ${{ matrix.language }}
+          FRAMEWORK: ${{ matrix.framework }}
         run: tests/e2e/resource-types/"$SUITE"/run.sh all
 
       - name: Collect diagnostics
@@ -150,7 +168,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: e2e-resource-types-${{ matrix.suite }}-${{ github.run_id }}
+          name: e2e-resource-types-${{ matrix.label }}-${{ github.run_id }}
           path: ${{ runner.temp }}/tdk-e2e/${{ matrix.suite }}/artifacts
           if-no-files-found: warn
           retention-days: 14

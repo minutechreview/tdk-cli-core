@@ -30,12 +30,15 @@ test-shell: ## Check shell script syntax, e2e suite definitions, the CI inventor
 	@echo "🧪 Checking shell verification script syntax..."
 	for script in scripts/verify-*.sh tests/e2e/lib/lib.sh tests/e2e/*/*/run.sh tests/e2e/resource-types/common.sh; do bash -n "$$script" || exit 1; done
 	node tests/e2e/lib/validate-suites.mjs
+	bash tests/e2e/static/skills-and-docs.sh >/dev/null
 	node scripts/check-ci-inventory.mjs
 	node --test scripts/check-ci-inventory.test.mjs
 	node tests/e2e/lib/check-axes.mjs
 	node --test tests/e2e/lib/__tests__/suite-matrix.test.mjs
+	node --test tests/e2e/lib/__tests__/registry-axes.test.mjs
 	node --test tests/e2e/lib/__tests__/check-axes.test.mjs
 	node --test scripts/red-job-tracker.test.mjs
+	node --test scripts/ci-report.test.mjs
 	node --test 'tests/e2e/lib/__tests__/*.test.mjs'
 
 test-e2e: ## Run a live-stack e2e suite: make test-e2e GROUP=resource-types SUITE=agent [CASES="A1 A2"] (needs Docker, Tilt, tdk)

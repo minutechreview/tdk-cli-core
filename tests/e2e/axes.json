@@ -8,18 +8,40 @@
 				"end": "] as const",
 				"kind": "array"
 			},
-			"groups": ["resource-types"],
-			"defaults": ["backend"],
+			"groups": [
+				"resource-types"
+			],
+			"defaults": [
+				"backend"
+			],
 			"values": {
-				"backend": { "allow": "#1294" },
-				"frontend": { "allow": "#1291" },
-				"library": { "allow": "#1295" },
-				"sdk": { "allow": "#1295" },
-				"worker": { "allow": "#1294" },
-				"migrator": { "allow": "#1294" },
-				"mcp": { "allow": "#1296" },
-				"agent": { "leg": "resource-types/agent" },
-				"bring-your-own": { "allow": "#1297" }
+				"backend": {
+					"leg": "resource-types/backend"
+				},
+				"frontend": {
+					"allow": "#1291"
+				},
+				"library": {
+					"allow": "#1295"
+				},
+				"sdk": {
+					"allow": "#1295"
+				},
+				"worker": {
+					"leg": "resource-types/worker"
+				},
+				"migrator": {
+					"leg": "resource-types/migrator"
+				},
+				"mcp": {
+					"leg": "resource-types/mcp"
+				},
+				"agent": {
+					"leg": "resource-types/agent"
+				},
+				"bring-your-own": {
+					"allow": "#1297"
+				}
 			},
 			"interactions": []
 		},
@@ -30,14 +52,28 @@
 				"end": "\n};",
 				"kind": "map"
 			},
-			"groups": ["resource-types"],
-			"defaults": ["bun"],
+			"groups": [
+				"resource-types"
+			],
+			"defaults": [
+				"bun"
+			],
 			"values": {
-				"bun": { "allow": "#1292" },
-				"python": { "allow": "#1292" },
-				"go": { "allow": "#1292" },
-				"rust": { "allow": "#1292" },
-				"node": { "allow": "#1292" }
+				"bun": {
+					"leg": "resource-types/backend"
+				},
+				"python": {
+					"leg": "resource-types/backend"
+				},
+				"go": {
+					"leg": "resource-types/backend"
+				},
+				"rust": {
+					"leg": "resource-types/backend"
+				},
+				"node": {
+					"leg": "resource-types/backend"
+				}
 			},
 			"interactions": []
 		},
@@ -48,16 +84,34 @@
 				"end": "\n};",
 				"kind": "map"
 			},
-			"groups": ["resource-types"],
-			"defaults": ["hono"],
+			"groups": [
+				"resource-types"
+			],
+			"defaults": [
+				"hono"
+			],
 			"values": {
-				"hono": { "allow": "#1293" },
-				"express": { "allow": "#1293" },
-				"elysia": { "allow": "#1293" },
-				"fastify": { "allow": "#1293" },
-				"h3": { "allow": "#1293" },
-				"koa": { "allow": "#1293" },
-				"nestjs": { "allow": "#1293" }
+				"hono": {
+					"leg": "resource-types/backend"
+				},
+				"express": {
+					"leg": "resource-types/backend"
+				},
+				"elysia": {
+					"leg": "resource-types/backend"
+				},
+				"fastify": {
+					"leg": "resource-types/backend"
+				},
+				"h3": {
+					"leg": "resource-types/backend"
+				},
+				"koa": {
+					"leg": "resource-types/backend"
+				},
+				"nestjs": {
+					"leg": "resource-types/backend"
+				}
 			},
 			"interactions": []
 		},
@@ -68,18 +122,40 @@
 				"end": "\n};",
 				"kind": "map"
 			},
-			"groups": ["resource-types"],
-			"defaults": ["react"],
+			"groups": [
+				"resource-types"
+			],
+			"defaults": [
+				"react"
+			],
 			"values": {
-				"react": { "allow": "#1291" },
-				"vue": { "allow": "#1291" },
-				"svelte": { "allow": "#1291" },
-				"preact": { "allow": "#1291" },
-				"lit": { "allow": "#1291" },
-				"solid": { "allow": "#1291" },
-				"qwik": { "allow": "#1291" },
-				"vanilla": { "allow": "#1291" },
-				"tanstack-router": { "allow": "#1291" }
+				"react": {
+					"leg": "resource-types/frontend"
+				},
+				"vue": {
+					"leg": "resource-types/frontend"
+				},
+				"svelte": {
+					"leg": "resource-types/frontend"
+				},
+				"preact": {
+					"leg": "resource-types/frontend"
+				},
+				"lit": {
+					"leg": "resource-types/frontend"
+				},
+				"solid": {
+					"leg": "resource-types/frontend"
+				},
+				"qwik": {
+					"leg": "resource-types/frontend"
+				},
+				"vanilla": {
+					"leg": "resource-types/frontend"
+				},
+				"tanstack-router": {
+					"leg": "resource-types/frontend"
+				}
 			},
 			"interactions": []
 		},
@@ -90,10 +166,16 @@
 				"end": "\n};",
 				"kind": "map"
 			},
-			"groups": ["resource-types"],
-			"defaults": ["custom"],
+			"groups": [
+				"resource-types"
+			],
+			"defaults": [
+				"custom"
+			],
 			"values": {
-				"custom": { "leg": "resource-types/agent" }
+				"custom": {
+					"leg": "resource-types/agent"
+				}
 			},
 			"interactions": []
 		},
@@ -104,21 +186,35 @@
 				"end": "] as const",
 				"kind": "array"
 			},
-			"groups": ["resource-types"],
-			"defaults": ["files"],
+			"groups": [
+				"resource-types"
+			],
+			"defaults": [
+				"files"
+			],
 			"values": {
-				"files": { "leg": "resource-types/agent" },
-				"postgres": { "leg": "resource-types/agent" }
+				"files": {
+					"leg": "resource-types/agent"
+				},
+				"postgres": {
+					"leg": "resource-types/agent"
+				}
 			},
 			"interactions": []
 		},
 		"feature": {
 			"source": null,
-			"groups": ["resource-types"],
+			"groups": [
+				"resource-types"
+			],
 			"defaults": [],
 			"values": {
-				"database-management": { "allow": "#1291" },
-				"prisma": { "allow": "#1291" }
+				"database-management": {
+					"allow": "#1291"
+				},
+				"prisma": {
+					"allow": "#1291"
+				}
 			},
 			"interactions": []
 		},
@@ -129,70 +225,135 @@
 				"end": "] as const",
 				"kind": "array"
 			},
-			"groups": ["resource-types", "examples"],
+			"groups": [
+				"resource-types",
+				"examples"
+			],
 			"defaults": [],
 			"values": {
-				"monitoring": { "allow": "#1291" },
-				"elk": { "allow": "#1291" },
-				"debezium": { "allow": "#1291" },
-				"golden_image": { "allow": "#1291" },
-				"verdaccio": { "allow": "#1291" }
+				"monitoring": {
+					"allow": "#1291"
+				},
+				"elk": {
+					"allow": "#1291"
+				},
+				"debezium": {
+					"allow": "#1291"
+				},
+				"golden_image": {
+					"allow": "#1291"
+				},
+				"verdaccio": {
+					"allow": "#1291"
+				}
 			},
 			"interactions": []
 		},
 		"byoVariant": {
 			"source": null,
-			"groups": ["resource-types", "examples"],
-			"defaults": ["byo"],
+			"groups": [
+				"resource-types",
+				"examples"
+			],
+			"defaults": [
+				"byo"
+			],
 			"values": {
-				"byo": { "allow": "#1297" },
-				"byo-jobs": { "allow": "#1297" }
+				"byo": {
+					"allow": "#1297"
+				},
+				"byo-jobs": {
+					"allow": "#1297"
+				}
 			},
 			"interactions": []
 		},
 		"example": {
 			"source": null,
-			"groups": ["examples"],
-			"defaults": ["one-backend"],
+			"groups": [
+				"examples"
+			],
+			"defaults": [
+				"one-backend"
+			],
 			"values": {
-				"one-backend": { "allow": "#1299" },
-				"one-backend-helm": { "allow": "#1299" },
-				"one-backend-python": { "allow": "#1299" },
-				"tdk-example": { "allow": "#1299" }
+				"one-backend": {
+					"allow": "#1299"
+				},
+				"one-backend-helm": {
+					"allow": "#1299"
+				},
+				"one-backend-python": {
+					"allow": "#1299"
+				},
+				"tdk-example": {
+					"allow": "#1299"
+				}
 			},
 			"interactions": []
 		},
 		"platform": {
 			"source": null,
-			"groups": ["platforms"],
-			"defaults": ["linux"],
+			"groups": [
+				"platforms"
+			],
+			"defaults": [
+				"linux"
+			],
 			"values": {
-				"linux": { "allow": "#1300" },
-				"windows": { "allow": "#1300" },
-				"wsl2": { "allow": "#1300" }
+				"linux": {
+					"allow": "#1300"
+				},
+				"windows": {
+					"allow": "#1300"
+				},
+				"wsl2": {
+					"allow": "#1300"
+				}
 			},
 			"interactions": []
 		},
 		"installChannel": {
 			"source": null,
-			"groups": ["journeys", "examples"],
-			"defaults": ["local"],
+			"groups": [
+				"journeys",
+				"examples"
+			],
+			"defaults": [
+				"local"
+			],
 			"values": {
-				"local": { "allow": "#1291" },
-				"npm": { "allow": "#1291" },
-				"release": { "allow": "#1291" }
+				"local": {
+					"allow": "#1291"
+				},
+				"npm": {
+					"allow": "#1291"
+				},
+				"release": {
+					"allow": "#1291"
+				}
 			},
 			"interactions": []
 		},
 		"journey": {
 			"source": null,
-			"groups": ["journeys"],
+			"groups": [
+				"journeys"
+			],
 			"defaults": [],
 			"values": {
-				"quickstart": { "allow": "#1298" },
-				"smoke": { "allow": "#1298" },
-				"dev-loop": { "allow": "#1298" },
-				"cold-start": { "allow": "#1298" }
+				"quickstart": {
+					"allow": "#1298"
+				},
+				"smoke": {
+					"allow": "#1298"
+				},
+				"dev-loop": {
+					"allow": "#1298"
+				},
+				"cold-start": {
+					"allow": "#1298"
+				}
 			},
 			"interactions": []
 		}
