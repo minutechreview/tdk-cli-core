@@ -22,13 +22,13 @@
 Needs Docker. Builds the image, runs it with `PORT=4000` and expects HTTP 200 on `/health`:
 
 ```bash
-VERIFY_WAIT_SECONDS=60 scripts/verify-byo-example.sh turso /health
+VERIFY_WAIT_SECONDS=60 tests/e2e/resource-types/bring-your-own/verify-byo-example.sh turso /health
 ```
 
 The server together with an app that uses it, through a real `tdk up` and Traefik:
 
 ```bash
-VERIFY_WAIT_SECONDS=600 scripts/verify-byo-pair.sh turso 4500 /health turso-app LIBSQL_URL /health
+VERIFY_WAIT_SECONDS=600 tests/e2e/resource-types/bring-your-own/verify-byo-pair.sh turso 4500 /health turso-app LIBSQL_URL /health
 ```
 
 ## Register it in a TDK project

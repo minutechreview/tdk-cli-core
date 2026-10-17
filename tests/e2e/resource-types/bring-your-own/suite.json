@@ -1,0 +1,50 @@
+{
+  "group": "resource-types",
+  "suite": "bring-your-own",
+  "description": "A bring-your-own app or pair in each byoVariant on its own check: example (the container alone, verify-byo-example.sh), tdk (through tdk up and Traefik with TDK's Postgres, verify-byo-tdk.sh), job (a one-shot through tdk up, verify-byo-job.sh) and pair (a dependency and an app through tdk up, verify-byo-pair.sh). The matrix runs one leg per variant (#1297).",
+  "paths": [
+    "docs/byo.md",
+    "cli/src/commands/resource.ts",
+    "engine/**",
+    "tests/e2e/lib/**",
+    "tests/e2e/resource-types/bring-your-own/**",
+    ".github/workflows/e2e-resource-types.yml",
+    "examples/byo/**",
+    "examples/byo-jobs/**"
+  ],
+  "cases": [
+    "BY1",
+    "BY2",
+    "BY3",
+    "BY4"
+  ],
+  "variants": [
+    {
+      "id": "example",
+      "case": "BY1",
+      "args": "echo /health"
+    },
+    {
+      "id": "tdk",
+      "case": "BY2",
+      "args": "full-stack-fastapi-template /api/v1/utils/health-check/"
+    },
+    {
+      "id": "job",
+      "case": "BY3",
+      "args": "dbmate"
+    },
+    {
+      "id": "pair",
+      "case": "BY4",
+      "args": "turso 4500 /health turso-app LIBSQL_URL /health"
+    }
+  ],
+  "triggers": [
+    "pr",
+    "nightly",
+    "manual"
+  ],
+  "timeoutMinutes": 30,
+  "needsSecrets": []
+}

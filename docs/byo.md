@@ -50,7 +50,7 @@ tdk resource migrate --type bring-your-own --stack shop --dockerfile ./Dockerfil
 
 `--restart` takes `no`, `on-failure`, `unless-stopped` (the default) or `always`, and is written to `service.json` as
 `"restart": "no"`. It is rejected for any other resource type. Checked with a real `tdk up` (PR #275): a dbmate job
-(`ghcr.io/amacneil/dbmate:2`, `dbmate up`) with `restart: "no"` applied its migration once and stayed `exited (0)` with zero restarts. A runnable version lives in [`examples/byo-jobs/`](../examples/byo-jobs/README.md); check it with `scripts/verify-byo-job.sh dbmate`.
+(`ghcr.io/amacneil/dbmate:2`, `dbmate up`) with `restart: "no"` applied its migration once and stayed `exited (0)` with zero restarts. A runnable version lives in [`examples/byo-jobs/`](../examples/byo-jobs/README.md); check it with `tests/e2e/resource-types/bring-your-own/verify-byo-job.sh dbmate`.
 
 ## Bringing a framework app (Node, Go, Rust, ...)
 
@@ -112,10 +112,10 @@ The existing `Dockerfile` is kept, and the resource gets a `service.json` like t
 and a check command:
 
 ```bash
-scripts/verify-byo-example.sh fastify          # health path /health
-scripts/verify-byo-example.sh create-vue /     # Vite apps answer on /
-scripts/verify-byo-tdk.sh full-stack-fastapi-template /api/v1/utils/health-check/   # needs a database: real tdk up
-VERIFY_WAIT_SECONDS=120 scripts/verify-byo-example.sh create-mastra /health   # slow starters
+tests/e2e/resource-types/bring-your-own/verify-byo-example.sh fastify          # health path /health
+tests/e2e/resource-types/bring-your-own/verify-byo-example.sh create-vue /     # Vite apps answer on /
+tests/e2e/resource-types/bring-your-own/verify-byo-tdk.sh full-stack-fastapi-template /api/v1/utils/health-check/   # needs a database: real tdk up
+VERIFY_WAIT_SECONDS=120 tests/e2e/resource-types/bring-your-own/verify-byo-example.sh create-mastra /health   # slow starters
 ```
 
 The check builds the image, runs it with `PORT=4000` and expects HTTP 200. Folders named `create-*`, `ember`, `rsbuild`
