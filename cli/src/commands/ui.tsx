@@ -31,8 +31,11 @@ import type {
   TabId,
 } from "../types/index.js";
 import { errorFactories, requireProjectRoot } from "../utils/errors.js";
+import { readSavedHostPortPlan } from "../utils/host-port-config.js";
 import { findProjectRoot, getPackageVersion } from "../utils/paths.js";
+import { isApiServiceType } from "../utils/resource-kind.js";
 import { describeSearch } from "../utils/search-status.js";
+import { buildAdvertisedTargets } from "../utils/service-urls.js";
 import {
   clearMetadataCache,
   discoverResources,
@@ -61,6 +64,7 @@ import {
   fetchServiceStates,
   type ServiceStates,
 } from "../utils/ui-service-state.js";
+import { copyToClipboard, openUrl } from "../utils/url-actions.js";
 
 // biome-ignore lint/correctness/noUnusedFunctionParameters: reserved callback prop kept in the component API
 const HelpPanel: React.FC<HelpPanelProps> = ({ onClose }) => {
@@ -212,6 +216,9 @@ export const TUIApp: React.FC<{ animated?: boolean }> = ({ animated = true }) =>
   const theme = useTUITheme();
   const { exit } = useApp();
   const { stdout } = useStdout();
+  // Ink 8 types stdout as a generic WritableStream; the TTY size fields exist at runtime.
+  type TtySize = Partial<Pick<NodeJS.WriteStream, "columns" | "rows">>;
+  const ttyStdout = stdout as TtySize;
   const { stdin, setRawMode } = useStdin();
   const [activeTab, setActiveTab] = useState<TabId>("overview");
   const [selectedStack, setSelectedStack] = useState<string | null>(null);
@@ -222,8 +229,8 @@ export const TUIApp: React.FC<{ animated?: boolean }> = ({ animated = true }) =>
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearching, setIsSearching] = useState(false);
 
-  const [terminalWidth, setTerminalWidth] = useState(stdout.columns || 120);
-  const [terminalRows, setTerminalRows] = useState(stdout.rows || 24);
+  const [terminalWidth, setTerminalWidth] = useState(ttyStdout.columns || 120);
+  const [terminalRows, setTerminalRows] = useState(ttyStdout.rows || 24);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [mouseEnabled, setMouseEnabled] = useState(true);
   const [listTop, setListTop] = useState<number | null>(null);
@@ -249,6 +256,10 @@ export const TUIApp: React.FC<{ animated?: boolean }> = ({ animated = true }) =>
   useEffect(() => () => statusMessage.dispose(), [statusMessage]);
 
   const projectRoot = findProjectRoot() || "unknown";
+  const ingressPort =
+    projectRoot === "unknown"
+      ? undefined
+      : (readSavedHostPortPlan(projectRoot)?.ingressHttp ?? undefined);
 
   const [{ stacks, services }, setDiscovered] = useState<{
     stacks: DiscoveredStack[];
@@ -487,6 +498,42 @@ export const TUIApp: React.FC<{ animated?: boolean }> = ({ animated = true }) =>
     [activeTab, selectedStack, selectedService, statusMessage],
   );
 
+  const resolveCurrentResource = useCallback((): DiscoveredResource | null => {
+    if (selectedService) {
+      return services.find((s: DiscoveredResource) => s.name === selectedService) ?? null;
+    }
+
+    const currentItem = items[highlightedIndex];
+    if (currentItem) {
+      const directService = services.find((s: DiscoveredResource) => s.name === currentItem.value);
+      if (directService) {
+        return directService;
+      }
+      const stack = stacks.find((st: DiscoveredStack) => st.name === currentItem.value);
+      if (stack && stack.resources.length > 0) {
+        const frontend = stack.resources.find((s) => s.config?.appType === "frontend");
+        if (frontend) return frontend;
+        const api = stack.resources.find((s) => isApiServiceType(s.config?.appType));
+        if (api) return api;
+        return stack.resources[0] ?? null;
+      }
+    }
+
+    if (selectedStackData && selectedStackData.stack.resources.length > 0) {
+      const frontend = selectedStackData.stack.resources.find(
+        (s) => s.config?.appType === "frontend",
+      );
+      if (frontend) return frontend;
+      const api = selectedStackData.stack.resources.find((s) =>
+        isApiServiceType(s.config?.appType),
+      );
+      if (api) return api;
+      return selectedStackData.stack.resources[0] ?? null;
+    }
+
+    return null;
+  }, [selectedService, items, highlightedIndex, services, stacks, selectedStackData]);
+
   useEffect(() => {
     setRawMode(true);
 
@@ -554,8 +601,9 @@ export const TUIApp: React.FC<{ animated?: boolean }> = ({ animated = true }) =>
   ]);
 
   const handleResize = useCallback(() => {
-    setTerminalWidth(stdout.columns || 120);
-    setTerminalRows(stdout.rows || 24);
+    const tty = stdout as TtySize;
+    setTerminalWidth(tty.columns || 120);
+    setTerminalRows(tty.rows || 24);
   }, [stdout]);
 
   useEffect(() => {
@@ -678,6 +726,39 @@ export const TUIApp: React.FC<{ animated?: boolean }> = ({ animated = true }) =>
       return;
     }
 
+    if (input === "o") {
+      const resource = resolveCurrentResource();
+      const target = resource ? buildAdvertisedTargets([resource], ingressPort)[0] : undefined;
+      if (!target?.url) {
+        statusMessage.show("No URL for this resource", 2000);
+      } else {
+        void openUrl(target.url).then((opened) => {
+          statusMessage.show(
+            opened ? `Opening ${target.url}` : `Failed to open ${target.url}`,
+            2000,
+          );
+        });
+      }
+      return;
+    }
+
+    if (input === "y") {
+      const resource = resolveCurrentResource();
+      const target = resource ? buildAdvertisedTargets([resource], ingressPort)[0] : undefined;
+      if (!target?.url) {
+        statusMessage.show("No URL for this resource", 2000);
+      } else {
+        void copyToClipboard(target.url).then((copied) => {
+          if (copied) {
+            statusMessage.show(`Copied ${target.url}`, 2000);
+          } else {
+            statusMessage.show(`Failed to copy ${target.url}`, 2000);
+          }
+        });
+      }
+      return;
+    }
+
     if (key.tab) {
       const tabs = TABS.map((tab) => tab.id);
       const currentIdx = tabs.indexOf(activeTab);
@@ -770,7 +851,7 @@ export const TUIApp: React.FC<{ animated?: boolean }> = ({ animated = true }) =>
   );
 
   return (
-    <Box flexDirection="column" height={stdout.rows || 24}>
+    <Box flexDirection="column" height={ttyStdout.rows || 24}>
       {header}
 
       {isSearching && (
@@ -1149,6 +1230,8 @@ function createHelpHint(
   if (activeTab === "resources") {
     return [
       cycleTabs,
+      formatUiKeyHint("open-url", "open", ascii),
+      formatUiKeyHint("copy-url", "copy", ascii),
       formatUiKeyHint("refresh", "Refresh", ascii),
       formatUiKeyHint("search", "Search", ascii),
       ...common,
