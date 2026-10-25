@@ -7,7 +7,7 @@ Run checks from the repository root unless a command says otherwise.
 | Change | Checks to run |
 |---|---|
 | CLI code or generated CLI behavior | `bun run typecheck`, `bun run lint`, `bun run test` |
-| Engine/Starlark generator used by the CLI tests | Run `bun run typecheck`, `bun run lint`, and `cd cli && TDK_REQUIRE_TILT=1 npm test`. The CI test job installs Tilt and sets this flag. |
+| Engine/Starlark generator used by the CLI tests | Run `bun run typecheck`, `bun run lint`, and `cd cli && FLISK_REQUIRE_TILT=1 npm test`. The CI test job installs Tilt and sets this flag. |
 | Python engine test area | Install the test packages once with `python3 -m pip install -r tests/requirements.txt`, then run the relevant test file with `pytest`, or `make test-tilt-engine` for that suite. Some tests there fail on a clean checkout; see #700 for which and why. These Python checks are not run by `.github/workflows/ci.yml`. |
 | Docs only | Check links and commands you changed; read the page once as a newcomer. |
 
@@ -15,13 +15,13 @@ Do not say a check passed unless you ran it. If you cannot run a check, say so a
 
 ### If the golden-output test fails
 
-The generated Tilt and Compose files for three sample projects are checked against committed copies in `cli/src/generator/__tests__/golden/`. If you changed a template in `cli/templates/` or the generator on purpose, the test fails and names each file that moved. Accept the change by running `UPDATE_GOLDEN=1 bun run test -- golden-generated-output`, read the diff of the golden files, and commit them with your change. If you did not mean to change generated output, fix the cause instead of updating the files. Existing projects see the same bytes change, so `tdk config verify` reports them out of sync until their next `tdk config regenerate`; say so in the PR.
+The generated Tilt and Compose files for three sample projects are checked against committed copies in `cli/src/generator/__tests__/golden/`. If you changed a template in `cli/templates/` or the generator on purpose, the test fails and names each file that moved. Accept the change by running `UPDATE_GOLDEN=1 bun run test -- golden-generated-output`, read the diff of the golden files, and commit them with your change. If you did not mean to change generated output, fix the cause instead of updating the files. Existing projects see the same bytes change, so `flisk config verify` reports them out of sync until their next `flisk config regenerate`; say so in the PR.
 
 ## Show what changed
 
 For a bug fix or behavior change, use the same steps on `main` and your branch when possible. Paste the real before-and-after output; do not recreate it from memory. Include the command, project or fixture, and any setup needed to repeat it. Cover the empty, error, or recovery cases named in the issue.
 
-If you test the built CLI entry point, run `bun run build` first so it does not use old compiled files. Check interactive commands such as `tdk ui` in a real terminal. If an automated test is missing, say why and link an issue to add it. New behavior and bug fixes need tests in the same pull request; see [Tests in CONTRIBUTING.md](../../CONTRIBUTING.md#tests).
+If you test the built CLI entry point, run `bun run build` first so it does not use old compiled files. Check interactive commands such as `flisk ui` in a real terminal. If an automated test is missing, say why and link an issue to add it. New behavior and bug fixes need tests in the same pull request; see [Tests in CONTRIBUTING.md](../../.github/CONTRIBUTING.md#tests).
 
 ## Push your branch
 
@@ -72,8 +72,8 @@ GitHub also adds **Grok**, **Claude**, and **Codex** buttons to the end of your 
 The [PR template](../../.github/pull_request_template.md) asks you to select the areas you changed and opens short instructions for each area. GitHub also adds matching `area:*` labels from changed paths and removes stale area labels when you push an updated diff. Labels organize the PR; workflow path rules decide which automation runs.
 
 - **Every pull request:** [CI](../../.github/workflows/ci.yml) runs lint, typecheck, CLI tests, and a package smoke check. Some extra CI jobs depend on which files changed or repository settings.
-- **Runtime files changed:** [Quickstart E2E](../../.github/workflows/quickstart-e2e.yml) also runs when a PR changes files under `cli/`, `engine/`, or `discovery/`, or changes `Tiltfile`, `package.json`, or that workflow file.
-- **Framework example:** adding Vue, React, or another provider changes `cli/` and `engine/`, so both the always-run CI and Quickstart E2E run.
-- **Docs-only change:** the always-run CI still runs. Quickstart E2E does not run unless the PR also changes one of its listed paths.
+- **Runtime files changed:** the [E2E journeys gate](../../.github/workflows/e2e-journeys.yml) runs on every PR, and its quickstart suite runs when a changed file matches that suite's paths in `tests/e2e/journeys/quickstart/suite.json` (for example files under `cli/`, `runtime/engine/`, or `runtime/discovery/`).
+- **Framework example:** adding Vue, React, or another provider changes `cli/` and `runtime/engine/`, so both the always-run CI and Quickstart E2E run.
+- **Docs-only change:** the always-run CI still runs. the quickstart suite does not run unless the PR also changes one of its paths.
 
 Other example-app and 100-service fixture-bench checks run on a schedule or by manual request, not on each PR. You can always see a workflow's trigger paths at the top of its file in `.github/workflows/`.

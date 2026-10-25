@@ -1,4 +1,4 @@
-// Copyright (c) 2026 TDK Landscape contributors
+// Copyright (c) 2026 Flisk Landscape contributors
 // SPDX-License-Identifier: MIT
 import { execFileSync, execSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
@@ -16,8 +16,8 @@ const EXEC_TIMEOUT_MS = 10_000;
 const REGISTRY_PROBE_TIMEOUT_MS = 3_000;
 const DEFAULT_VERDACCIO_URL = "http://localhost:4873";
 export const HOST_PORT_FIXES = {
-    port80: "Stop the process bound to port 80, or stop local nginx/caddy. Then: tdk doctor",
-    port5432: "Stop local Postgres or change the host port. Then: tdk doctor",
+    port80: "Stop the process bound to port 80, or stop local nginx/caddy. Then: flisk doctor",
+    port5432: "Stop local Postgres or change the host port. Then: flisk doctor",
 };
 /**
  * Quote a value for a POSIX shell command line. JSON.stringify is not enough:
@@ -27,7 +27,8 @@ export function shellQuote(value) {
     return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 function runHostCommand(exec, command, args, shellCommand, options) {
-    if (process.platform === "win32") {
+    // A supplied custom executor wins on every platform, including Windows.
+    if (process.platform === "win32" && exec === execSync) {
         return execFileSync(findOnPath(command) ?? command, args, {
             ...options,
             windowsHide: true,
@@ -74,7 +75,7 @@ export function parsePublishedPortHolders(dockerPsOutput, ports) {
 export function isOwnIngressContainer(containerName, projectPrefix) {
     const name = containerName.toLowerCase();
     const prefix = projectPrefix.toLowerCase();
-    // tdk_project_traefik, tdk_project-traefik-1, etc.
+    // flisk_project_traefik, flisk_project-traefik-1, etc.
     return name === `${prefix}_traefik` || name.startsWith(`${prefix}_traefik`);
 }
 export function findForeignIngressHolders(holders, projectPrefix) {
@@ -88,9 +89,10 @@ export function findForeignIngressHolders(holders, projectPrefix) {
  * (e.g. not run from inside a project), so callers degrade to today's
  * behavior rather than erroring.
  */
-export function getDeferredResourceNames() {
+export function getDeferredResourceNames(resources) {
     try {
-        return new Set(discoverResources()
+        const list = resources ?? discoverResources();
+        return new Set(list
             .filter((svc) => svc.config?.sablier?.enable && svc.config?.sablier?.deferStart)
             .map((svc) => svc.name));
     }
@@ -204,7 +206,7 @@ export function isRegistryRelatedBuildError(error) {
     return /ConnectionRefused downloading package manifest|Verdaccio|private registry|dependency install failed during ImageBuild|install-deps\.sh|bun install/i.test(error);
 }
 export function projectConfigEnablesVerdaccio(projectRoot = findProjectRoot() ?? process.cwd()) {
-    const projectJsonPath = join(projectRoot, ".tdk", PROJECT_JSON);
+    const projectJsonPath = join(projectRoot, ".flisk", PROJECT_JSON);
     if (!existsSync(projectJsonPath))
         return false;
     try {
@@ -247,7 +249,7 @@ export function checkPrivateNpmRegistry(exec = execSync, projectRoot = findProje
             name: "Private npm registry",
             didPass: true,
             isSkipped: true,
-            message: "Verdaccio is enabled in the project config but needs a Premium license, so TDK will not start it - skipped",
+            message: "Verdaccio is enabled in the project config but needs a Premium license, so Flisk will not start it - skipped",
         };
     }
     if (!projectExpectsVerdaccio(projectRoot)) {
@@ -304,14 +306,14 @@ export function checkPrivateNpmRegistry(exec = execSync, projectRoot = findProje
             name: "Private npm registry",
             didPass: false,
             message: `Verdaccio container is running but ${registryUrl} is not responding (${httpDetail}). ImageBuilds that install @scoped packages will fail with ConnectionRefused downloading package manifest.`,
-            fix: "Check `docker logs` for the verdaccio container, confirm port 4873 is published, then re-run `tdk doctor`.",
+            fix: "Check `docker logs` for the verdaccio container, confirm port 4873 is published, then re-run `flisk doctor`.",
         };
     }
     return {
         name: "Private npm registry",
         didPass: false,
-        message: `Private npm registry (Verdaccio) is not reachable at ${registryUrl}. Docker ImageBuilds will fail with ConnectionRefused downloading package manifests for @tdk-landscape/* and project-scoped packages.`,
-        fix: "Start the registry with `bun run verdaccio:start` (or `docker compose -f docker-compose.verdaccio.yml up -d`), publish packages with `bun run publish:all` / `scripts/build/publish-to-verdaccio.sh`, then `tilt trigger` failed resources or re-run `tdk up`.",
+        message: `Private npm registry (Verdaccio) is not reachable at ${registryUrl}. Docker ImageBuilds will fail with ConnectionRefused downloading package manifests for @flisk-sh/* and project-scoped packages.`,
+        fix: "Start the registry with `bun run verdaccio:start` (or `docker compose -f docker-compose.verdaccio.yml up -d`), publish packages with `bun run publish:all` / `scripts/build/publish-to-verdaccio.sh`, then `tilt trigger` failed resources or re-run `flisk up`.",
     };
 }
 /**
@@ -366,7 +368,7 @@ export function checkIngressPorts(exec = execSync, projectName = getProjectName(
         name: "Ingress Ports",
         didPass: false,
         message: `Traefik cannot bind ingress ports because another container already owns them:\n    ${details}`,
-        fix: `Stop the foreign container(s), e.g. \`docker stop ${foreign[0]?.name}\`, or shut down the other TDK/Tilt project using that Traefik. Then re-run \`tdk up\`.`,
+        fix: `Stop the foreign container(s), e.g. \`docker stop ${foreign[0]?.name}\`, or shut down the other Flisk/Tilt project using that Traefik. Then re-run \`flisk up\`.`,
     };
 }
 /** Host ports the generated stack publishes: Traefik (80, 443) and Postgres (5432). */
@@ -390,7 +392,7 @@ function probeAddress(port, host) {
  * it before trying 127.0.0.1 avoids that self-collision on every platform.
  */
 export async function probeHostPort(port) {
-    // Several `tdk project` E2E tests can run at once. Their preflight probes
+    // Several `flisk project` E2E tests can run at once. Their preflight probes
     // briefly bind the same port, so an EADDRINUSE can be another probe rather
     // than a service. Retry once after those short-lived binds have closed.
     for (let attempt = 0; attempt < 2; attempt++) {
@@ -439,7 +441,7 @@ export function summarizeServiceProbes(probes) {
             didPass: true,
             isSkipped: true,
             message: `No services responded - skipped ping of ${formatCount(probes.length, "service")} (stack may be down, or Traefik never bound :80)`,
-            fix: "If `tdk up` is already running, check Traefik/port 80 in the Tilt UI. Otherwise start with: tdk up",
+            fix: "If `flisk up` is already running, check Traefik/port 80 in the Tilt UI. Otherwise start with: flisk up",
         };
     }
     if (failed.length === 0) {
@@ -458,8 +460,8 @@ export function summarizeServiceProbes(probes) {
         didPass: false,
         message: `${formatCount(failed.length, "service")} not healthy (${probes.length - failed.length}/${probes.length} healthy):\n    ${details}`,
         fix: notRouted
-            ? "If `tdk up` just started, images may still be building: re-run `tdk doctor` in a minute. Otherwise check `docker ps` and the resource in the Tilt UI, and compare `tdk networks` with the URL above."
-            : "Check container state and routing: docker ps, then tdk networks to compare the advertised URLs against Traefik's routers",
+            ? "If `flisk up` just started, images may still be building: re-run `flisk doctor` in a minute. Otherwise check `docker ps` and the resource in the Tilt UI, and compare `flisk networks` with the URL above."
+            : "Check container state and routing: docker ps, then flisk networks to compare the advertised URLs against Traefik's routers",
     };
 }
 /**
@@ -488,7 +490,7 @@ export function summarizeSmokeResults(results) {
         name: "Service Smoke",
         didPass: false,
         message: `${formatCount(failed.length, "service")} failing a smoke check (${results.length - failed.length}/${results.length} passing):\n    ${details}`,
-        fix: 'Add the route the smoke step expects, or correct its "path" in the service.json "smoke" block. Then re-run tdk doctor.',
+        fix: 'Add the route the smoke step expects, or correct its "path" in the service.json "smoke" block. Then re-run flisk doctor.',
     };
 }
 /**
@@ -519,7 +521,7 @@ export function summarizeAdvertisedProbes(probes) {
         didPass: true,
         isWarning: true,
         message: `${formatCount(dead.length, "advertised link")} ${dead.length === 1 ? "returns" : "return"} 404 (the service may be healthy, but nothing answers at this exact path):\n    ${details}`,
-        fix: 'Nothing handles this exact path, so opening the link shows a 404 even when /health is fine. If this API has no root route, you can leave it. Otherwise add a GET route for it (for example one that returns the service name), or declare a read-only "smoke" step on a real route in service.json. The URL tdk networks and the TDK App print stays the same until the CLI changes how it reports it.',
+        fix: 'Nothing handles this exact path, so opening the link shows a 404 even when /health is fine. If this API has no root route, you can leave it. Otherwise add a GET route for it (for example one that returns the service name), or declare a read-only "smoke" step on a real route in service.json. The URL flisk networks and the Flisk App print stays the same until the CLI changes how it reports it.',
     };
 }
 /**
@@ -583,12 +585,12 @@ export async function checkHostPorts(exec = execSync, projectName = getProjectNa
         fix = HOST_PORT_FIXES.port5432;
     }
     else {
-        fix = `Stop the process bound to port ${first}. Then: tdk doctor`;
+        fix = `Stop the process bound to port ${first}. Then: flisk doctor`;
     }
     return {
         name: "Host Ports",
         didPass: false,
-        message: `Ports TDK needs are taken:\n    ${problems.join("\n    ")}`,
+        message: `Ports Flisk needs are taken:\n    ${problems.join("\n    ")}`,
         fix,
     };
 }
@@ -612,7 +614,7 @@ export function checkTiltResourceHealth(exec = execSync) {
             didPass: true,
             isSkipped: true,
             message: "Tilt is not running - skipped resource status check",
-            fix: "Start them with: tdk up",
+            fix: "Start them with: flisk up",
         };
     }
     let parsed;
@@ -666,12 +668,12 @@ export function checkTiltResourceHealth(exec = execSync) {
     const hasRegistryFailure = ordered.some((failure) => isRegistryRelatedBuildError(failure.error) ||
         isRegistryRelatedBuildError(summarizeTiltBuildError(failure.error)));
     const hasKafkaRuntimeFailure = described.some(({ why }) => /Kafka broker unreachable|kafka:9092/i.test(why));
-    let fix = "Open the Tilt UI URL printed by tdk up (default port " +
+    let fix = "Open the Tilt UI URL printed by flisk up (default port " +
         STANDARD_PORTS.tiltUi +
-        " when TILT_PORT is unset), inspect the red resources, fix the listed errors, then `tilt trigger <resource>` or re-run `tdk up`.";
+        " when TILT_PORT is unset), inspect the red resources, fix the listed errors, then `tilt trigger <resource>` or re-run `flisk up`.";
     if (hasPortConflict) {
         fix =
-            "Free the conflicting host port (usually 80/443): `docker ps --filter publish=80` then `docker stop <other-traefik>`. Re-trigger Traefik in the Tilt UI or run `tdk up` again.";
+            "Free the conflicting host port (usually 80/443): `docker ps --filter publish=80` then `docker stop <other-traefik>`. Re-trigger Traefik in the Tilt UI or run `flisk up` again.";
     }
     else if (hasRegistryFailure) {
         fix =
@@ -717,7 +719,7 @@ export function probeContainerRuntimeError(resourceName, exec = execSync, projec
             .map((line) => line.trim())
             .filter(Boolean);
         // Compose names the container <project>-<stack>-autogenerated-<resource>-1. Prefer this project's
-        // container: another TDK project can run a stack with the same name on the same Docker daemon.
+        // container: another Flisk project can run a stack with the same name on the same Docker daemon.
         const composeSuffix = `-autogenerated-${resourceName}-1`;
         const match = names.find((name) => name === resourceName) ??
             names.find((name) => name.startsWith(`${projectName}-`) && name.endsWith(composeSuffix)) ??
@@ -834,7 +836,7 @@ export function findMissingHealthRoutes(resources) {
 /**
  * A backend without its health route never passes the container healthcheck,
  * so Traefik never routes to it and every request gets a 404 - after a slow
- * image build, with nothing in `tdk up` saying why. Catch it before starting.
+ * image build, with nothing in `flisk up` saying why. Catch it before starting.
  */
 export function checkHealthRoutes(projectRoot = findProjectRoot() ?? process.cwd()) {
     let resources = [];

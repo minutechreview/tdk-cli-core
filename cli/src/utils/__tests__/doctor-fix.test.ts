@@ -1,16 +1,20 @@
-// Copyright (c) 2026 TDK Landscape contributors
+// Copyright (c) 2026 Flisk Landscape contributors
 // SPDX-License-Identifier: MIT
-import { mkdirSync, mkdtempSync, realpathSync, symlinkSync } from "node:fs";
+
+import { spawnSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import type { ColimaStatus } from "../colima.js";
 import {
   anyTiltAnswers,
   applyDoctorFixes,
-  checkDuplicateTdkInstalls,
+  checkDuplicateFliskInstalls,
   createDockerFixDeps,
   type DockerNetwork,
   type DoctorFixDeps,
+  findFliskInstalls,
   hasFailedActions,
   parseElapsed,
   planDoctorFixes,
@@ -29,6 +33,9 @@ function fakeDocker(
   const removed: string[] = [];
   const pruned: string[] = [];
   const stopped: number[] = [];
+  const colimaActions: string[] = [];
+  const colimaState: ColimaStatus = { isColima: false, running: true };
+  const dockerIsUp = { value: true };
   const deps: DoctorFixDeps = {
     listNetworks: async () => networks,
     removeNetwork: async (name) => {
@@ -45,6 +52,11 @@ function fakeDocker(
       buildCache: disk.buildCache ?? null,
       danglingImages: disk.dangling ?? 0,
     }),
+    colima: async (action) => {
+      colimaActions.push(action);
+    },
+    colimaStatus: () => colimaState,
+    dockerAnswers: () => dockerIsUp.value,
     prune: async (kind) => {
       pruned.push(kind);
     },
@@ -58,24 +70,24 @@ describe("planDoctorFixes", () => {
   it("plans unused networks of this project and leftover probes", async () => {
     const { deps } = fakeDocker([
       net("it_ai_search_backend"),
-      net("tdk_doctor_probe_111"),
+      net("flisk_doctor_probe_111"),
       net("bridge"),
     ]);
     const plan = await planDoctorFixes("it-ai-search", deps);
     expect(plan.map((a) => [a.id, a.scope, a.status])).toEqual([
       ["remove-network:it_ai_search_backend", "project", "planned"],
-      ["remove-network:tdk_doctor_probe_111", "probe", "planned"],
+      ["remove-network:flisk_doctor_probe_111", "probe", "planned"],
     ]);
     expect(plan[0]?.command).toBe("docker network rm it_ai_search_backend");
   });
 
   it("never plans another project's networks", async () => {
-    const { deps } = fakeDocker([net("umami_backend"), net("tdk_restaurant_example_database")]);
+    const { deps } = fakeDocker([net("umami_backend"), net("flisk_restaurant_example_database")]);
     expect(await planDoctorFixes("it-ai-search", deps)).toEqual([]);
   });
 
   it("skips project networks while Tilt runs, but still plans probes", async () => {
-    const { deps } = fakeDocker([net("it_ai_search_backend"), net("tdk_doctor_probe_5")]);
+    const { deps } = fakeDocker([net("it_ai_search_backend"), net("flisk_doctor_probe_5")]);
     const plan = await planDoctorFixes("it-ai-search", deps, { tiltPids: [7] });
     expect(plan.map((a) => [a.scope, a.status])).toEqual([
       ["project", "skipped"],
@@ -92,15 +104,15 @@ describe("planDoctorFixes", () => {
   });
 
   it("skips the probe of a process that is still running", async () => {
-    const { deps } = fakeDocker([net("tdk_doctor_probe_42"), net("tdk_doctor_probe_43")], [42]);
+    const { deps } = fakeDocker([net("flisk_doctor_probe_42"), net("flisk_doctor_probe_43")], [42]);
     const plan = await planDoctorFixes(undefined, deps);
     expect(plan.map((a) => a.status)).toEqual(["skipped", "planned"]);
   });
 
   it("only plans probes outside a project", async () => {
-    const { deps } = fakeDocker([net("it_ai_search_backend"), net("tdk_doctor_probe_7")]);
+    const { deps } = fakeDocker([net("it_ai_search_backend"), net("flisk_doctor_probe_7")]);
     const plan = await planDoctorFixes(undefined, deps);
-    expect(plan.map((a) => a.id)).toEqual(["remove-network:tdk_doctor_probe_7"]);
+    expect(plan.map((a) => a.id)).toEqual(["remove-network:flisk_doctor_probe_7"]);
   });
 });
 
@@ -185,6 +197,9 @@ describe("applyDoctorFixes", () => {
       freeDiskGib: () => 100,
       reclaimable: async () => ({ buildCache: null, danglingImages: 0 }),
       prune: async () => {},
+      colima: async () => {},
+      colimaStatus: () => ({ isColima: false, running: true }),
+      dockerAnswers: () => true,
     };
     await applyDoctorFixes(
       await planDoctorFixes("it-ai-search", deps),
@@ -195,21 +210,83 @@ describe("applyDoctorFixes", () => {
   });
 });
 
-describe("checkDuplicateTdkInstalls", () => {
-  it("passes with one install", async () => {
-    const result = await checkDuplicateTdkInstalls([{ path: "/usr/bin/tdk", version: "1.3.155" }]);
+describe("checkDuplicateFliskInstalls", () => {
+  it("passes with zero or one install", async () => {
+    expect((await checkDuplicateFliskInstalls([])).didPass).toBe(true);
+    const result = await checkDuplicateFliskInstalls([
+      { path: "/usr/bin/flisk", version: "1.3.155" },
+    ]);
     expect(result.didPass).toBe(true);
   });
 
   it("warns with both paths and versions when installs differ", async () => {
-    const result = await checkDuplicateTdkInstalls([
-      { path: "/opt/bin/tdk", version: "1.3.155" },
-      { path: "/usr/local/bin/tdk", version: "1.3.144" },
+    const result = await checkDuplicateFliskInstalls([
+      { path: "/opt/bin/flisk", version: "1.3.155" },
+      { path: "/usr/local/bin/flisk", version: "1.3.144" },
     ]);
     expect(result.didPass).toBe(false);
     expect(result.isWarning).toBe(true);
-    expect(result.message).toContain("/usr/local/bin/tdk (1.3.144)");
+    expect(result.message).toContain("/usr/local/bin/flisk (1.3.144)");
     expect(result.message).toContain("different versions");
+  });
+
+  it("warns without mentioning different versions when versions match", async () => {
+    const result = await checkDuplicateFliskInstalls([
+      { path: "/opt/bin/flisk", version: "1.3.155" },
+      { path: "/usr/local/bin/flisk", version: "1.3.155" },
+    ]);
+    expect(result.didPass).toBe(false);
+    expect(result.isWarning).toBe(true);
+    expect(result.message).not.toContain("different versions");
+    expect(result.message).toContain(
+      "2 flisk installs on PATH: /opt/bin/flisk (1.3.155), /usr/local/bin/flisk (1.3.155)",
+    );
+  });
+
+  it("formats unknown versions gracefully", async () => {
+    const result = await checkDuplicateFliskInstalls([
+      { path: "/opt/bin/flisk", version: null },
+      { path: "/usr/local/bin/flisk", version: "1.3.155" },
+    ]);
+    expect(result.message).toContain("/opt/bin/flisk (version unknown)");
+  });
+
+  it("checks installs using system default when no installs are passed", async () => {
+    const result = await checkDuplicateFliskInstalls();
+    expect(result.name).toBe("Flisk installs");
+    expect(typeof result.didPass).toBe("boolean");
+  });
+});
+
+describe("findFliskInstalls", () => {
+  it("returns empty list for empty path list", async () => {
+    expect(await findFliskInstalls([])).toEqual([]);
+  });
+
+  it("deduplicates symlinks resolving to the same binary path", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "find-flisk-"));
+    const bin = join(dir, "flisk-bin");
+    const link = join(dir, "flisk-link");
+    writeFileSync(bin, "#!/bin/sh\n");
+    try {
+      symlinkSync(bin, link);
+    } catch {
+      // Windows without developer mode/symlink privileges falls through gracefully
+      return;
+    }
+    const installs = await findFliskInstalls([link, bin], async () => "1.0.0");
+    expect(installs).toEqual([{ path: link, version: "1.0.0" }]);
+  });
+
+  it("keeps unresolvable paths and reads their versions", async () => {
+    const installs = await findFliskInstalls(
+      ["/nonexistent/flisk-a", "/nonexistent/flisk-b"],
+      async (p) => (p.endsWith("a") ? "1.0.0" : null),
+    );
+    expect(installs).toEqual([
+      { path: "/nonexistent/flisk-a", version: "1.0.0" },
+      { path: "/nonexistent/flisk-b", version: null },
+    ]);
   });
 });
 
@@ -218,10 +295,10 @@ describe("createDockerFixDeps", () => {
     const calls: string[][] = [];
     const deps = createDockerFixDeps(async (args) => {
       calls.push(args);
-      if (args[1] === "ls") return "bridge\nit_ai_search_backend\ntdk_doctor_probe_1\n";
+      if (args[1] === "ls") return "bridge\nit_ai_search_backend\nflisk_doctor_probe_1\n";
       const name = args.at(-1);
-      if (name === "tdk_doctor_probe_1") {
-        throw new Error("Error response from daemon: network tdk_doctor_probe_1 not found");
+      if (name === "flisk_doctor_probe_1") {
+        throw new Error("Error response from daemon: network flisk_doctor_probe_1 not found");
       }
       return name === "bridge" ? "2\n" : "0\n";
     });
@@ -245,6 +322,68 @@ describe("createDockerFixDeps", () => {
     });
     await expect(deps.removeNetwork("x")).rejects.toThrow(/^has active endpoints$/);
   });
+
+  it("parses reclaimable build cache and dangling images correctly", async () => {
+    const deps = createDockerFixDeps(async (args) => {
+      if (args[0] === "system" && args[1] === "df") {
+        return "Images\t10GB\nBuild Cache\t1.531GB (39%)\n";
+      }
+      if (args[0] === "images") {
+        return "sha256:abc\nsha256:def\n";
+      }
+      return "";
+    });
+    const info = await deps.reclaimable();
+    expect(info).toEqual({
+      buildCache: "1.531GB",
+      danglingImages: 2,
+    });
+  });
+
+  it("handles reclaimable failures gracefully with defaults", async () => {
+    const deps = createDockerFixDeps(async () => {
+      throw new Error("docker daemon unresponsive");
+    });
+    expect(await deps.reclaimable()).toEqual({
+      buildCache: null,
+      danglingImages: 0,
+    });
+  });
+
+  it("runs prune for builder and images, formatting errors to first line", async () => {
+    const calls: string[][] = [];
+    const deps = createDockerFixDeps(async (args) => {
+      calls.push(args);
+      if (args[0] === "image") {
+        throw Object.assign(new Error("fail"), { stderr: "cannot prune images\nline 2" });
+      }
+      return "";
+    });
+    await deps.prune("builder");
+    expect(calls).toEqual([["builder", "prune", "-f"]]);
+    await expect(deps.prune("images")).rejects.toThrow(/^cannot prune images$/);
+  });
+
+  it("checks process liveness using process signals", () => {
+    const deps = createDockerFixDeps();
+    expect(deps.isProcessAlive(process.pid)).toBe(true);
+    const child = spawnSync(process.execPath, ["-e", "process.exit(0)"]);
+    if (child.pid) {
+      expect(deps.isProcessAlive(child.pid)).toBe(false);
+    }
+  });
+
+  it("reads free disk GiB safely", () => {
+    const deps = createDockerFixDeps();
+    const free = deps.freeDiskGib();
+    expect(free === null || (typeof free === "number" && free >= 0)).toBe(true);
+  });
+
+  it("checks tilt status via tiltStatus safely", async () => {
+    const deps = createDockerFixDeps();
+    const status = await deps.tiltStatus(process.pid);
+    expect(["healthy", "stale", "unknown"]).toContain(status);
+  });
 });
 
 describe("projectTiltPids", () => {
@@ -255,8 +394,8 @@ describe("projectTiltPids", () => {
     const link = join(base, "link");
     symlinkSync(real, link);
     const launched = new Map([
-      [join(link, ".tdk", ".tdk-out", "Tiltfile"), [11]],
-      [join(real, ".tdk", ".tdk-out", "Tiltfile"), [12]],
+      [join(link, ".flisk", ".flisk-out", "Tiltfile"), [11]],
+      [join(real, ".flisk", ".flisk-out", "Tiltfile"), [12]],
     ]);
     const find = (path: string) => launched.get(path) ?? [];
     expect(projectTiltPids(link, find).sort()).toEqual([11, 12]);
@@ -306,7 +445,7 @@ describe("--scope=machine", () => {
     net("it_ai_search_backend"),
   ];
 
-  it("plans other TDK projects' unused networks naming the owner", async () => {
+  it("plans other Flisk projects' unused networks naming the owner", async () => {
     const { deps } = fakeDocker(machineNets);
     const plan = await planDoctorFixes("it-ai-search", deps, { machine: true });
     const byId = Object.fromEntries(plan.map((a) => [a.id, a]));
@@ -336,9 +475,17 @@ describe("parseElapsed", () => {
 });
 
 describe("disk reclaim", () => {
-  it("plans nothing while there is plenty of disk", async () => {
+  it("plans nothing while there is plenty of disk or disk is unreadable", async () => {
     const { deps } = fakeDocker([], [], [], {}, { freeGib: 50, buildCache: "3GB", dangling: 4 });
     expect(await planDoctorFixes("p", deps)).toEqual([]);
+    const unreadable = fakeDocker(
+      [],
+      [],
+      [],
+      {},
+      { freeGib: null, buildCache: "3GB", dangling: 4 },
+    );
+    expect(await planDoctorFixes("p", unreadable.deps)).toEqual([]);
   });
 
   it("plans the build cache and untagged images, with sizes, when disk is low", async () => {
@@ -347,7 +494,7 @@ describe("disk reclaim", () => {
       [],
       [],
       {},
-      { freeGib: 4.2, buildCache: "1.531GB", dangling: 3 },
+      { freeGib: 4.2, buildCache: "1.531GB", dangling: 1 },
     );
     const plan = await planDoctorFixes("p", deps);
     expect(plan.map((a) => [a.id, a.scope, a.command])).toEqual([
@@ -355,7 +502,7 @@ describe("disk reclaim", () => {
       ["prune:images", "host", "docker image prune -f"],
     ]);
     expect(plan[0]?.reason).toContain("4.2 GB free; 1.531GB of build cache");
-    expect(plan[1]?.reason).toContain("3 untagged images");
+    expect(plan[1]?.reason).toContain("1 untagged image");
   });
 
   it("skips what has nothing to reclaim, and never plans volumes or a full image prune", async () => {
@@ -380,6 +527,28 @@ describe("disk reclaim", () => {
     const result = await applyDoctorFixes(plan, { dryRun: false, confirm: async () => true }, deps);
     expect(pruned).toEqual(["builder", "images"]);
     expect(result.every((a) => a.status === "applied")).toBe(true);
+  });
+
+  it("records failed status when prune throws", async () => {
+    const { deps } = fakeDocker([], [], [], {}, { freeGib: 3, buildCache: "1GB", dangling: 0 });
+    deps.prune = async () => {
+      throw new Error("prune error details");
+    };
+    const plan = await planDoctorFixes("p", deps);
+    const result = await applyDoctorFixes(plan, { dryRun: false, confirm: async () => true }, deps);
+    expect(result[0]?.status).toBe("failed");
+    expect(result[0]?.reason).toBe("Error: prune error details");
+  });
+
+  it("records failed status when stopProcess throws", async () => {
+    const { deps } = fakeDocker([], [], [], { 99: "stale" });
+    deps.stopProcess = () => {
+      throw new Error("permission denied");
+    };
+    const plan = await planDoctorFixes("p", deps, { tiltPids: [99] });
+    const result = await applyDoctorFixes(plan, { dryRun: false, confirm: async () => true }, deps);
+    expect(result[0]?.status).toBe("failed");
+    expect(result[0]?.reason).toBe("Error: permission denied");
   });
 });
 
@@ -407,5 +576,66 @@ describe("anyTiltAnswers", () => {
     expect(await anyTiltAnswers([1, 2], probe, 2, noWait)).toBe(false);
     expect(calls).toBe(4);
     expect(await anyTiltAnswers([], probe, 2, noWait)).toBe(false);
+  });
+});
+
+describe("Colima repairs", () => {
+  const baseDeps = (overrides: Partial<DoctorFixDeps> = {}): DoctorFixDeps => ({
+    listNetworks: async () => [],
+    removeNetwork: async () => {},
+    isProcessAlive: () => false,
+    tiltStatus: async () => "unknown",
+    stopProcess: () => {},
+    freeDiskGib: () => 100,
+    reclaimable: async () => ({ buildCache: null, danglingImages: 0 }),
+    prune: async () => {},
+    colima: async () => {},
+    colimaStatus: () => ({ isColima: true, running: false }),
+    dockerAnswers: () => false,
+    ...overrides,
+  });
+
+  it("plans a start when the Colima VM is not running", async () => {
+    const actions = await planDoctorFixes("shop", baseDeps());
+    const start = actions.find((action) => action.id === "colima:start");
+    expect(start?.command).toBe("colima start");
+    expect(start?.status).toBe("planned");
+  });
+
+  it("plans a restart when the VM is up but Docker does not answer", async () => {
+    const actions = await planDoctorFixes(
+      "shop",
+      baseDeps({ colimaStatus: () => ({ isColima: true, running: true }) }),
+    );
+    expect(actions.find((action) => action.id === "colima:restart")?.command).toBe(
+      "colima restart",
+    );
+  });
+
+  it("plans nothing when Colima is healthy", async () => {
+    const actions = await planDoctorFixes(
+      "shop",
+      baseDeps({
+        colimaStatus: () => ({ isColima: true, running: true, arch: "aarch64" }),
+        dockerAnswers: () => true,
+      }),
+    );
+    expect(actions.filter((action) => action.id.startsWith("colima:"))).toEqual([]);
+  });
+
+  it("applies the start", async () => {
+    const ran: string[] = [];
+    const deps = baseDeps({
+      colima: async (action) => {
+        ran.push(action);
+      },
+    });
+    const results = await applyDoctorFixes(
+      await planDoctorFixes("shop", deps),
+      { dryRun: false, confirm: async () => true },
+      deps,
+    );
+    expect(ran).toEqual(["start"]);
+    expect(results.find((action) => action.id === "colima:start")?.status).toBe("applied");
   });
 });

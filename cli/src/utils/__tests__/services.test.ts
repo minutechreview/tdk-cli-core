@@ -1,6 +1,6 @@
-// Copyright (c) 2026 TDK Landscape contributors
+// Copyright (c) 2026 Flisk Landscape contributors
 // SPDX-License-Identifier: MIT
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import fs, { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -128,7 +128,7 @@ describe("discoverResources", () => {
       expect.unreachable("Should have thrown");
     } catch (err) {
       expect((err as Error).message).toContain("project root");
-      expect((err as Error).message).toContain(".tdk/project.json");
+      expect((err as Error).message).toContain(".flisk/project.json");
     }
   });
 });
@@ -230,7 +230,7 @@ describe("discoverStacks with real temp dir", () => {
   let tmpDir: string;
 
   beforeEach(() => {
-    tmpDir = mkdtempSync(join(tmpdir(), "tdk-stacks-"));
+    tmpDir = mkdtempSync(join(tmpdir(), "flisk-stacks-"));
     vi.mocked(findProjectRoot).mockReturnValue(tmpDir);
   });
 
@@ -240,16 +240,16 @@ describe("discoverStacks with real temp dir", () => {
   });
 
   it("should return empty stacks when no resources", async () => {
-    mkdirSync(join(tmpDir, ".tdk"), { recursive: true });
-    writeFileSync(join(tmpDir, ".tdk", "project.json"), JSON.stringify({ version: "2" }));
+    mkdirSync(join(tmpDir, ".flisk"), { recursive: true });
+    writeFileSync(join(tmpDir, ".flisk", "project.json"), JSON.stringify({ version: "2" }));
     const { discoverStacks } = await import("../services.js");
     const stacks = discoverStacks();
     expect(stacks).toEqual([]);
   });
 
   it("should group resources by stack", async () => {
-    mkdirSync(join(tmpDir, ".tdk"), { recursive: true });
-    writeFileSync(join(tmpDir, ".tdk", "project.json"), JSON.stringify({ version: "2" }));
+    mkdirSync(join(tmpDir, ".flisk"), { recursive: true });
+    writeFileSync(join(tmpDir, ".flisk", "project.json"), JSON.stringify({ version: "2" }));
     mkdirSync(join(tmpDir, "services", "product", "svc-a", "backend"), { recursive: true });
     mkdirSync(join(tmpDir, "services", "product", "svc-b", "backend"), { recursive: true });
     writeFileSync(
@@ -273,7 +273,7 @@ describe("getResourcesForStack with real temp dir", () => {
   let tmpDir: string;
 
   beforeEach(() => {
-    tmpDir = mkdtempSync(join(tmpdir(), "tdk-res-stack-"));
+    tmpDir = mkdtempSync(join(tmpdir(), "flisk-res-stack-"));
     vi.mocked(findProjectRoot).mockReturnValue(tmpDir);
   });
 
@@ -283,16 +283,16 @@ describe("getResourcesForStack with real temp dir", () => {
   });
 
   it("should return empty array for nonexistent stack", async () => {
-    mkdirSync(join(tmpDir, ".tdk"), { recursive: true });
-    writeFileSync(join(tmpDir, ".tdk", "project.json"), JSON.stringify({ version: "2" }));
+    mkdirSync(join(tmpDir, ".flisk"), { recursive: true });
+    writeFileSync(join(tmpDir, ".flisk", "project.json"), JSON.stringify({ version: "2" }));
     const { getResourcesForStack } = await import("../services.js");
     const resources = getResourcesForStack("nonexistent");
     expect(resources).toEqual([]);
   });
 
   it("should return resources for existing stack", async () => {
-    mkdirSync(join(tmpDir, ".tdk"), { recursive: true });
-    writeFileSync(join(tmpDir, ".tdk", "project.json"), JSON.stringify({ version: "2" }));
+    mkdirSync(join(tmpDir, ".flisk"), { recursive: true });
+    writeFileSync(join(tmpDir, ".flisk", "project.json"), JSON.stringify({ version: "2" }));
     mkdirSync(join(tmpDir, "services", "product", "svc-a", "backend"), { recursive: true });
     writeFileSync(
       join(tmpDir, "services", "product", "svc-a", "service.json"),
@@ -310,7 +310,7 @@ describe("stackExists with real temp dir", () => {
   let tmpDir: string;
 
   beforeEach(() => {
-    tmpDir = mkdtempSync(join(tmpdir(), "tdk-exists-"));
+    tmpDir = mkdtempSync(join(tmpdir(), "flisk-exists-"));
     vi.mocked(findProjectRoot).mockReturnValue(tmpDir);
   });
 
@@ -320,15 +320,15 @@ describe("stackExists with real temp dir", () => {
   });
 
   it("should return false for nonexistent stack", async () => {
-    mkdirSync(join(tmpDir, ".tdk"), { recursive: true });
-    writeFileSync(join(tmpDir, ".tdk", "project.json"), JSON.stringify({ version: "2" }));
+    mkdirSync(join(tmpDir, ".flisk"), { recursive: true });
+    writeFileSync(join(tmpDir, ".flisk", "project.json"), JSON.stringify({ version: "2" }));
     const { stackExists } = await import("../services.js");
     expect(stackExists("nonexistent")).toBe(false);
   });
 
   it("should return true for existing stack", async () => {
-    mkdirSync(join(tmpDir, ".tdk"), { recursive: true });
-    writeFileSync(join(tmpDir, ".tdk", "project.json"), JSON.stringify({ version: "2" }));
+    mkdirSync(join(tmpDir, ".flisk"), { recursive: true });
+    writeFileSync(join(tmpDir, ".flisk", "project.json"), JSON.stringify({ version: "2" }));
     mkdirSync(join(tmpDir, "services", "product", "svc-a", "backend"), { recursive: true });
     writeFileSync(
       join(tmpDir, "services", "product", "svc-a", "service.json"),
@@ -377,7 +377,9 @@ describe("error message consistency between services and tilt", () => {
       tiltError = error as Error;
     }
 
-    expect(serviceError?.message).toBe("Could not find project root (no .tdk/project.json found)");
+    expect(serviceError?.message).toBe(
+      "Could not find project root (no .flisk/project.json found)",
+    );
     expect(tiltError?.message).toBe(serviceError?.message);
   });
 });
@@ -386,7 +388,7 @@ describe("findServiceJsonFiles discovery (temp dir integration)", () => {
   let tmpDir: string;
 
   beforeEach(() => {
-    tmpDir = mkdtempSync(join(tmpdir(), "tdk-svc-json-"));
+    tmpDir = mkdtempSync(join(tmpdir(), "flisk-svc-json-"));
     // Mock findProjectRoot to return our temp dir
     vi.mocked(findProjectRoot).mockReturnValue(tmpDir);
   });
@@ -397,8 +399,8 @@ describe("findServiceJsonFiles discovery (temp dir integration)", () => {
   });
 
   it("should discover service.json files recursively", async () => {
-    mkdirSync(join(tmpDir, ".tdk"), { recursive: true });
-    writeFileSync(join(tmpDir, ".tdk", "project.json"), JSON.stringify({ version: "2" }));
+    mkdirSync(join(tmpDir, ".flisk"), { recursive: true });
+    writeFileSync(join(tmpDir, ".flisk", "project.json"), JSON.stringify({ version: "2" }));
     mkdirSync(join(tmpDir, "services", "product", "svc-a", "backend"), { recursive: true });
     mkdirSync(join(tmpDir, "services", "product", "svc-b", "backend"), { recursive: true });
     writeFileSync(
@@ -418,8 +420,8 @@ describe("findServiceJsonFiles discovery (temp dir integration)", () => {
   });
 
   it("should skip node_modules directories", async () => {
-    mkdirSync(join(tmpDir, ".tdk"), { recursive: true });
-    writeFileSync(join(tmpDir, ".tdk", "project.json"), JSON.stringify({ version: "2" }));
+    mkdirSync(join(tmpDir, ".flisk"), { recursive: true });
+    writeFileSync(join(tmpDir, ".flisk", "project.json"), JSON.stringify({ version: "2" }));
     mkdirSync(join(tmpDir, "node_modules", "some-pkg"), { recursive: true });
     writeFileSync(
       join(tmpDir, "node_modules", "some-pkg", "service.json"),
@@ -438,8 +440,8 @@ describe("findServiceJsonFiles discovery (temp dir integration)", () => {
   });
 
   it("should skip dot-directories", async () => {
-    mkdirSync(join(tmpDir, ".tdk"), { recursive: true });
-    writeFileSync(join(tmpDir, ".tdk", "project.json"), JSON.stringify({ version: "2" }));
+    mkdirSync(join(tmpDir, ".flisk"), { recursive: true });
+    writeFileSync(join(tmpDir, ".flisk", "project.json"), JSON.stringify({ version: "2" }));
     mkdirSync(join(tmpDir, ".hidden"), { recursive: true });
     writeFileSync(
       join(tmpDir, ".hidden", "service.json"),
@@ -458,8 +460,8 @@ describe("findServiceJsonFiles discovery (temp dir integration)", () => {
   });
 
   it("should skip dist directories", async () => {
-    mkdirSync(join(tmpDir, ".tdk"), { recursive: true });
-    writeFileSync(join(tmpDir, ".tdk", "project.json"), JSON.stringify({ version: "2" }));
+    mkdirSync(join(tmpDir, ".flisk"), { recursive: true });
+    writeFileSync(join(tmpDir, ".flisk", "project.json"), JSON.stringify({ version: "2" }));
     mkdirSync(join(tmpDir, "services", "product", "svc-a", "backend"), { recursive: true });
     writeFileSync(
       join(tmpDir, "services", "product", "svc-a", "service.json"),
@@ -478,8 +480,8 @@ describe("findServiceJsonFiles discovery (temp dir integration)", () => {
   });
 
   it("should skip build directories", async () => {
-    mkdirSync(join(tmpDir, ".tdk"), { recursive: true });
-    writeFileSync(join(tmpDir, ".tdk", "project.json"), JSON.stringify({ version: "2" }));
+    mkdirSync(join(tmpDir, ".flisk"), { recursive: true });
+    writeFileSync(join(tmpDir, ".flisk", "project.json"), JSON.stringify({ version: "2" }));
     mkdirSync(join(tmpDir, "services", "product", "svc-a", "backend"), { recursive: true });
     writeFileSync(
       join(tmpDir, "services", "product", "svc-a", "service.json"),
@@ -498,8 +500,8 @@ describe("findServiceJsonFiles discovery (temp dir integration)", () => {
   });
 
   it("should handle service.json with missing required fields", async () => {
-    mkdirSync(join(tmpDir, ".tdk"), { recursive: true });
-    writeFileSync(join(tmpDir, ".tdk", "project.json"), JSON.stringify({ version: "2" }));
+    mkdirSync(join(tmpDir, ".flisk"), { recursive: true });
+    writeFileSync(join(tmpDir, ".flisk", "project.json"), JSON.stringify({ version: "2" }));
     mkdirSync(join(tmpDir, "services", "product", "svc-bad", "backend"), { recursive: true });
     writeFileSync(
       join(tmpDir, "services", "product", "svc-bad", "service.json"),
@@ -511,8 +513,8 @@ describe("findServiceJsonFiles discovery (temp dir integration)", () => {
   });
 
   it("should handle service.json with appType instead of runtime", async () => {
-    mkdirSync(join(tmpDir, ".tdk"), { recursive: true });
-    writeFileSync(join(tmpDir, ".tdk", "project.json"), JSON.stringify({ version: "2" }));
+    mkdirSync(join(tmpDir, ".flisk"), { recursive: true });
+    writeFileSync(join(tmpDir, ".flisk", "project.json"), JSON.stringify({ version: "2" }));
     mkdirSync(join(tmpDir, "services", "product", "svc-front", "frontend"), { recursive: true });
     writeFileSync(
       join(tmpDir, "services", "product", "svc-front", "service.json"),
@@ -526,8 +528,8 @@ describe("findServiceJsonFiles discovery (temp dir integration)", () => {
   });
 
   it("should resolve resource paths relative to project root", async () => {
-    mkdirSync(join(tmpDir, ".tdk"), { recursive: true });
-    writeFileSync(join(tmpDir, ".tdk", "project.json"), JSON.stringify({ version: "2" }));
+    mkdirSync(join(tmpDir, ".flisk"), { recursive: true });
+    writeFileSync(join(tmpDir, ".flisk", "project.json"), JSON.stringify({ version: "2" }));
     mkdirSync(join(tmpDir, "services", "product", "svc-a", "backend"), { recursive: true });
     writeFileSync(
       join(tmpDir, "services", "product", "svc-a", "service.json"),
@@ -547,7 +549,7 @@ describe("service.json warnings", () => {
   let root = "";
 
   beforeEach(() => {
-    root = mkdtempSync(join(tmpdir(), "tdk-warn-"));
+    root = mkdtempSync(join(tmpdir(), "flisk-warn-"));
     mkdirSync(join(root, "services", "api"), { recursive: true });
     writeFileSync(
       join(root, "services", "api", "service.json"),
@@ -578,7 +580,7 @@ describe("resilient service discovery", () => {
   let root = "";
 
   beforeEach(() => {
-    root = mkdtempSync(join(tmpdir(), "tdk-resilient-discovery-"));
+    root = mkdtempSync(join(tmpdir(), "flisk-resilient-discovery-"));
     vi.mocked(findProjectRoot).mockReturnValue(root);
     resetPrintedServiceWarnings();
   });
@@ -671,5 +673,178 @@ describe("resilient service discovery", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     expect(discoverResourcesFromRoot(root)).toEqual([]);
     expect(warn).toHaveBeenCalledWith(expect.stringContaining(path));
+  });
+
+  it("handles unassigned resources and missing project root in createDiscoveryContext", async () => {
+    writeService("no-stack", JSON.stringify({ appName: "no-stack", appType: "backend" }));
+    const { clearDiscoveryCache, createDiscoveryContext } = await import("../discovery-context.js");
+    clearDiscoveryCache();
+    const ctx = createDiscoveryContext();
+    expect(ctx.unassignedResources.map((r) => r.name)).toContain("no-stack");
+
+    clearDiscoveryCache();
+    vi.mocked(findProjectRoot).mockReturnValue(null);
+    try {
+      expect(() => createDiscoveryContext()).toThrow("Could not find project root");
+    } finally {
+      vi.mocked(findProjectRoot).mockReturnValue(root);
+    }
+  });
+});
+
+describe("single-scan discovery reuse", () => {
+  let root = "";
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "flisk-single-scan-"));
+    mkdirSync(join(root, ".flisk"), { recursive: true });
+    writeFileSync(join(root, ".flisk", "project.json"), JSON.stringify({ version: "2" }));
+    for (const [name, stack, port] of [
+      ["svc-a", "api", 4001],
+      ["svc-b", "api", 4002],
+      ["svc-c", "web", 3001],
+    ] as const) {
+      const dir = join(root, "services", stack, name);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(
+        join(dir, "service.json"),
+        JSON.stringify({ appName: name, appType: "backend", stack, port }),
+      );
+    }
+    vi.mocked(findProjectRoot).mockReturnValue(root);
+    resetPrintedServiceWarnings();
+  });
+
+  afterEach(async () => {
+    const { clearDiscoveryCache } = await import("../discovery-context.js");
+    clearDiscoveryCache();
+    rmSync(root, { recursive: true, force: true });
+    vi.restoreAllMocks();
+  });
+
+  it("does not rescan when pre-discovered resources are passed to stack helpers", async () => {
+    const {
+      discoverResourcesFromRoot: discoverFromRoot,
+      discoverStackNames,
+      discoverStacks,
+      getResourcesForStack,
+      stackExists,
+    } = await import("../services.js");
+
+    const resources = discoverFromRoot(root);
+    const readdirSpy = vi.spyOn(fs, "readdirSync");
+    const readFileSpy = vi.spyOn(fs, "readFileSync");
+
+    const stacks = discoverStacks(resources);
+    const apiResources = getResourcesForStack("api", resources);
+    const hasApi = stackExists("api", resources);
+    const hasMissing = stackExists("missing", resources);
+    const stackNames = discoverStackNames(root, resources);
+
+    expect(readdirSpy).not.toHaveBeenCalled();
+    expect(readFileSpy).not.toHaveBeenCalled();
+    expect(stacks.map((s) => s.name)).toEqual(["api", "web"]);
+    expect(apiResources.map((r) => r.name)).toEqual(["svc-a", "svc-b"]);
+    expect(hasApi).toBe(true);
+    expect(hasMissing).toBe(false);
+    expect(stackNames).toEqual(["api", "web"]);
+  });
+
+  it("walks the filesystem once per createDiscoveryContext until clearDiscoveryCache is called", async () => {
+    const { clearDiscoveryCache, createDiscoveryContext } = await import("../discovery-context.js");
+    clearDiscoveryCache();
+
+    const readdirSpy = vi.spyOn(fs, "readdirSync");
+    const readFileSpy = vi.spyOn(fs, "readFileSync");
+
+    const first = createDiscoveryContext();
+    const firstReaddirCount = readdirSpy.mock.calls.length;
+    const firstReadFileCount = readFileSpy.mock.calls.length;
+    expect(firstReaddirCount).toBeGreaterThan(0);
+    expect(firstReadFileCount).toBe(3);
+
+    const second = createDiscoveryContext();
+    expect(second.resources).toEqual(first.resources);
+    expect(readdirSpy).toHaveBeenCalledTimes(firstReaddirCount);
+    expect(readFileSpy).toHaveBeenCalledTimes(firstReadFileCount);
+
+    clearDiscoveryCache();
+    createDiscoveryContext();
+    expect(readdirSpy).toHaveBeenCalledTimes(firstReaddirCount * 2);
+    expect(readFileSpy).toHaveBeenCalledTimes(firstReadFileCount * 2);
+  });
+
+  it("walks the filesystem once across all checks in enforceServiceConfigGate", async () => {
+    const { enforceServiceConfigGate } = await import("../service-config-checks.js");
+    const readdirSpy = vi.spyOn(fs, "readdirSync");
+    const readFileSpy = vi.spyOn(fs, "readFileSync");
+
+    enforceServiceConfigGate(root);
+
+    expect(readFileSpy).toHaveBeenCalledTimes(3);
+    expect(readdirSpy.mock.calls.filter(([dir]) => String(dir) === root)).toHaveLength(1);
+  });
+
+  it("isolates discovery cache between multiple project roots in one process", async () => {
+    const { clearDiscoveryCache, createDiscoveryContext } = await import("../discovery-context.js");
+    clearDiscoveryCache();
+
+    const otherRoot = mkdtempSync(join(tmpdir(), "flisk-other-root-"));
+    try {
+      const otherDir = join(otherRoot, "services", "billing", "payment");
+      mkdirSync(otherDir, { recursive: true });
+      writeFileSync(
+        join(otherDir, "service.json"),
+        JSON.stringify({ appName: "payment", appType: "backend", stack: "billing", port: 5001 }),
+      );
+
+      // Query first root
+      vi.mocked(findProjectRoot).mockReturnValue(root);
+      const ctx1 = createDiscoveryContext();
+      expect(ctx1.resources.map((r) => r.name).sort()).toEqual(["svc-a", "svc-b", "svc-c"]);
+
+      // Query second root
+      vi.mocked(findProjectRoot).mockReturnValue(otherRoot);
+      const ctx2 = createDiscoveryContext();
+      expect(ctx2.resources.map((r) => r.name)).toEqual(["payment"]);
+
+      // Re-query first root: returns cached result for root without cross-contamination
+      vi.mocked(findProjectRoot).mockReturnValue(root);
+      const ctx1Cached = createDiscoveryContext();
+      expect(ctx1Cached.resources.map((r) => r.name).sort()).toEqual(["svc-a", "svc-b", "svc-c"]);
+
+      // Targeted invalidation of second root only
+      clearDiscoveryCache(otherRoot);
+      const ctx1StillCached = createDiscoveryContext();
+      expect(ctx1StillCached).toBe(ctx1);
+    } finally {
+      rmSync(otherRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("returns updated resources after manifest creation/mutation when clearDiscoveryCache is called", async () => {
+    const { clearDiscoveryCache, createDiscoveryContext } = await import("../discovery-context.js");
+    clearDiscoveryCache();
+
+    const initial = createDiscoveryContext();
+    expect(initial.resources).toHaveLength(3);
+
+    // Add a new service manifest to disk
+    const newDir = join(root, "services", "api", "svc-new");
+    mkdirSync(newDir, { recursive: true });
+    writeFileSync(
+      join(newDir, "service.json"),
+      JSON.stringify({ appName: "svc-new", appType: "backend", stack: "api", port: 4005 }),
+    );
+
+    // Without cache invalidation, same-process context retains cached list
+    const cached = createDiscoveryContext();
+    expect(cached.resources).toHaveLength(3);
+
+    // After invalidation, rediscovery reflects the new service
+    clearDiscoveryCache();
+    const refreshed = createDiscoveryContext();
+    expect(refreshed.resources).toHaveLength(4);
+    expect(refreshed.resources.some((r) => r.name === "svc-new")).toBe(true);
   });
 });

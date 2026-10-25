@@ -1,5 +1,5 @@
 # GitHub's CodeQL code scanning (free for public repos). Findings appear under Security > Code scanning.
-name: 🔬 CodeQL
+name: 🔬 Security | CodeQL
 
 on:
   push:
@@ -14,14 +14,16 @@ permissions:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Keep each PR head SHA's CodeQL run: Scorecard evaluates SAST coverage per
+  # merged PR commit, so cancelling an older run can leave that SHA unscanned.
+  cancel-in-progress: ${{ github.event_name != 'pull_request' }}
 
 jobs:
   # Pull requests only. The javascript-typescript leg runs on every pull request, so Scorecard's SAST check sees each
   # merged change as scanned (#835). The actions leg runs only when a workflow file changes.
   changes:
     name: 🔎 Detect Workflow Changes
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 2 # every job finishes in under 20s; fail fast if one hangs
     if: github.event_name == 'pull_request'
     permissions:
@@ -45,7 +47,7 @@ jobs:
     needs: changes
     # `changes` is skipped on push and schedule, so `!cancelled()` keeps this job from inheriting that skip.
     if: ${{ !cancelled() }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 20
     permissions:
       contents: read
@@ -60,12 +62,27 @@ jobs:
           persist-credentials: false
       # The actions leg is a step-level gate: a matrix leg cannot take its own job-level `if`, so on a pull request
       # without workflow changes it reports success with these two steps skipped. Anything but 'false' runs it.
-      - uses: github/codeql-action/init@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+      - uses: github/codeql-action/init@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
         if: ${{ matrix.language != 'actions' || github.event_name != 'pull_request' || needs.changes.outputs.workflows != 'false' }}
         with:
           languages: ${{ matrix.language }}
           build-mode: none
-      - uses: github/codeql-action/analyze@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+      - uses: github/codeql-action/analyze@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
         if: ${{ matrix.language != 'actions' || github.event_name != 'pull_request' || needs.changes.outputs.workflows != 'false' }}
         with:
           category: /language:${{ matrix.language }}
+
+  # Starlark (Tiltfiles, *.star) has no CodeQL extractor. This unofficial community analyzer reports through SARIF into the
+  # same Code scanning view. Pinned to a full commit like every other action here.
+  starlark:
+    name: 🔬 Analyze (starlark)
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      security-events: write # upload SARIF results
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: flisk-sh/codeql-starlark@2dfbd614fa9097279c0938e3469b86bc43930dfc # v0.2.2

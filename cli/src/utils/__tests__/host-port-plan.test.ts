@@ -1,11 +1,26 @@
-// Copyright (c) 2026 TDK Landscape contributors
+// Copyright (c) 2026 Flisk Landscape contributors
 // SPDX-License-Identifier: MIT
 import { createServer } from "node:net";
 import { describe, expect, it } from "vitest";
-import { createHostPortPlan, formatHostPortPlan, isPrivilegedBindFree } from "../host-port-plan.js";
+import { FliskError } from "../errors.js";
+import {
+  createHostPortPlan,
+  formatHostPortPlan,
+  type HostPortPlan,
+  type HostPortPlanOptions,
+  isPrivilegedBindFree,
+} from "../host-port-plan.js";
 import { resolveSubdomainBases } from "../service-urls.js";
 
 describe("createHostPortPlan", () => {
+  it("throws FliskError with suggestions on invalid port or exhausted ranges", async () => {
+    await expect(
+      createHostPortPlan({ env: { FLISK_HTTP_PORT: "70000" }, isAvailable: async () => true }),
+    ).rejects.toSatisfy((err: unknown) => {
+      return err instanceof FliskError && err.suggestions.length > 0;
+    });
+  });
+
   it("chooses bounded fallback ports when defaults are occupied", async () => {
     const plan = await createHostPortPlan({
       env: {},
@@ -38,16 +53,16 @@ describe("createHostPortPlan", () => {
     expect(plan.requested.postgres).toBe(5432);
     expect(plan.postgres).toBe(15432);
     expect(formatHostPortPlan(plan)).toContain("Postgres 15432");
-    const originalBaseUrl = process.env.TDK_SERVICE_BASE_URL;
-    process.env.TDK_SERVICE_BASE_URL = "http://port-plan.localhost";
+    const originalBaseUrl = process.env.FLISK_SERVICE_BASE_URL;
+    process.env.FLISK_SERVICE_BASE_URL = "http://port-plan.localhost";
     try {
       expect(resolveSubdomainBases(plan.ingressHttp)).toEqual({
         appBase: "http://app.port-plan.localhost:8080",
         apiBase: "http://api.port-plan.localhost:8080",
       });
     } finally {
-      if (originalBaseUrl === undefined) delete process.env.TDK_SERVICE_BASE_URL;
-      else process.env.TDK_SERVICE_BASE_URL = originalBaseUrl;
+      if (originalBaseUrl === undefined) delete process.env.FLISK_SERVICE_BASE_URL;
+      else process.env.FLISK_SERVICE_BASE_URL = originalBaseUrl;
     }
   });
 
@@ -55,33 +70,37 @@ describe("createHostPortPlan", () => {
     const plan = await createHostPortPlan({ env: {}, isAvailable: async () => true });
     expect([plan.ingressHttp, plan.ingressHttps, plan.postgres]).toEqual([80, 443, 15432]);
     expect(plan.reason.ingressHttp).toBe("requested port is free");
-    const originalBaseUrl = process.env.TDK_SERVICE_BASE_URL;
-    process.env.TDK_SERVICE_BASE_URL = "http://port-plan.localhost";
+    const originalBaseUrl = process.env.FLISK_SERVICE_BASE_URL;
+    process.env.FLISK_SERVICE_BASE_URL = "http://port-plan.localhost";
     try {
       expect(resolveSubdomainBases(plan.ingressHttp)).toEqual({
         appBase: "http://app.port-plan.localhost",
         apiBase: "http://api.port-plan.localhost",
       });
     } finally {
-      if (originalBaseUrl === undefined) delete process.env.TDK_SERVICE_BASE_URL;
-      else process.env.TDK_SERVICE_BASE_URL = originalBaseUrl;
+      if (originalBaseUrl === undefined) delete process.env.FLISK_SERVICE_BASE_URL;
+      else process.env.FLISK_SERVICE_BASE_URL = originalBaseUrl;
     }
   });
 
   it("honors explicit overrides and rejects collisions", async () => {
-    const env = { TDK_HTTP_PORT: "18080", TDK_HTTPS_PORT: "18443", TDK_POSTGRES_PORT: "15433" };
+    const env = {
+      FLISK_HTTP_PORT: "18080",
+      FLISK_HTTPS_PORT: "18443",
+      FLISK_POSTGRES_PORT: "15433",
+    };
     const plan = await createHostPortPlan({ env, isAvailable: async () => true });
     expect([plan.ingressHttp, plan.ingressHttps, plan.postgres]).toEqual([18080, 18443, 15433]);
     expect(Object.values(plan.explicit).every(Boolean)).toBe(true);
     await expect(
       createHostPortPlan({ env, isAvailable: async (port) => port !== 18080 }),
-    ).rejects.toThrow("TDK_HTTP_PORT=18080 is already in use");
+    ).rejects.toThrow("FLISK_HTTP_PORT=18080 is already in use");
   });
 
   it("rejects invalid ports and fails with an override hint when ranges are exhausted", async () => {
     await expect(
-      createHostPortPlan({ env: { TDK_HTTP_PORT: "70000" }, isAvailable: async () => true }),
-    ).rejects.toThrow("TDK_HTTP_PORT must be an integer");
+      createHostPortPlan({ env: { FLISK_HTTP_PORT: "70000" }, isAvailable: async () => true }),
+    ).rejects.toThrow("FLISK_HTTP_PORT must be an integer");
     await expect(
       createHostPortPlan({
         env: {},
@@ -92,7 +111,7 @@ describe("createHostPortPlan", () => {
           postgres: { start: 15432, end: 15432 },
         },
       }),
-    ).rejects.toThrow("Set TDK_HTTP_PORT to a free port");
+    ).rejects.toThrow("Set FLISK_HTTP_PORT to a free port");
   });
 
   it("probes host publish availability on IPv4 loopback", async () => {
@@ -103,10 +122,10 @@ describe("createHostPortPlan", () => {
     try {
       await expect(
         createHostPortPlan({
-          env: { TDK_HTTP_PORT: String(address.port) },
+          env: { FLISK_HTTP_PORT: String(address.port) },
           isAvailable: undefined,
         }),
-      ).rejects.toThrow(`TDK_HTTP_PORT=${address.port} is already in use`);
+      ).rejects.toThrow(`FLISK_HTTP_PORT=${address.port} is already in use`);
     } finally {
       server.close();
     }
@@ -123,5 +142,64 @@ describe("isPrivilegedBindFree", () => {
   it("never treats other bind errors as free", () => {
     expect(isPrivilegedBindFree("EADDRINUSE", "darwin")).toBe(false);
     expect(isPrivilegedBindFree(undefined, "darwin")).toBe(false);
+  });
+});
+
+describe("concurrent projects", () => {
+  function createHost(
+    occupied: number[] = [],
+  ): (ranges?: HostPortPlanOptions["ranges"]) => Promise<HostPortPlan> {
+    const taken = new Set(occupied);
+    return async (ranges?: HostPortPlanOptions["ranges"]): Promise<HostPortPlan> => {
+      const plan = await createHostPortPlan({
+        env: {},
+        isAvailable: async (port) => !taken.has(port),
+        ranges,
+      });
+      taken.add(plan.ingressHttp);
+      taken.add(plan.ingressHttps);
+      taken.add(plan.postgres);
+      return plan;
+    };
+  }
+
+  it("gives each of the first 4 projects distinct ports", async () => {
+    const start = createHost();
+    const plans = [await start(), await start(), await start(), await start()];
+    expect(plans.map((p) => [p.ingressHttp, p.ingressHttps, p.postgres])).toEqual([
+      [80, 443, 15432],
+      [8080, 8443, 15433],
+      [8081, 8444, 15434],
+      [8082, 8445, 15435],
+    ]);
+  });
+
+  it("fails the 102nd project on Postgres when ports 80 and 443 are free", async () => {
+    // 80 and 443 add one candidate to the HTTP and HTTPS ranges, so Postgres runs out first.
+    const start = createHost();
+    for (let i = 0; i < 101; i++) await start();
+    await expect(start()).rejects.toThrow(
+      "No available host port in 15432-15532 for postgres. Set FLISK_POSTGRES_PORT",
+    );
+  });
+
+  it("fails the third project with two-port ranges", async () => {
+    const ranges = {
+      ingressHttp: { start: 8080, end: 8081 },
+      ingressHttps: { start: 8443, end: 8444 },
+      postgres: { start: 15432, end: 15433 },
+    };
+    const start = createHost([80, 443]); // something else already owns 80/443
+    await start(ranges);
+    await start(ranges);
+    await expect(start(ranges)).rejects.toThrow(
+      "No available host port in 8080-8081 for ingressHttp",
+    );
+  });
+
+  it("fails the 102nd project on ingressHttp when ports 80 and 443 cannot be used", async () => {
+    const start = createHost([80, 443]);
+    for (let i = 0; i < 101; i++) await start();
+    await expect(start()).rejects.toThrow("No available host port in 8080-8180 for ingressHttp");
   });
 });

@@ -1,4 +1,4 @@
-// Copyright (c) 2026 TDK Landscape contributors
+// Copyright (c) 2026 Flisk Landscape contributors
 // SPDX-License-Identifier: MIT
 import { existsSync, readFileSync } from "node:fs";
 import { join, relative, resolve, sep } from "node:path";
@@ -53,9 +53,9 @@ function globMatchesDir(patternSegments: string[], dirSegments: string[]): boole
   );
 }
 
-/** `discovery.paths` from .tdk/project.json, or the generic default when unset/unreadable. */
+/** `discovery.paths` from .flisk/project.json, or the generic default when unset/unreadable. */
 export function readDiscoveryPaths(projectRoot: string): string[] {
-  const configPath = join(projectRoot, ".tdk", PROJECT_JSON);
+  const configPath = join(projectRoot, ".flisk", PROJECT_JSON);
   if (!existsSync(configPath)) return DEFAULT_DISCOVERY_PATHS;
 
   try {
@@ -95,7 +95,7 @@ export interface ChosenResourcePath {
  * Picks the folder for a new resource without an explicit --path. The conventional folder
  * per type (apps/, workers/, packages/) is kept when discovery covers it; otherwise the
  * resource goes under services/<stack>/, which the default discovery paths cover, because a
- * resource outside every discovery path is scaffolded but never started by `tdk up`.
+ * resource outside every discovery path is scaffolded but never started by `flisk up`.
  */
 export function chooseResourcePath(
   projectRoot: string,

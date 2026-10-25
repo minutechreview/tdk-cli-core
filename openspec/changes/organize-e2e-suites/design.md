@@ -13,7 +13,7 @@ See proposal.md for why. This is the inventory on `origin/main` (5194a45a plus l
 | `python-example-e2e.yml` | Python provider example | examples / python | PR (path-filtered) |
 | `byo-e2e.yml` + `tests/e2e/resource-types/bring-your-own/verify-byo-python.sh` | BYO dry run | resource-types / bring-your-own | PR |
 | `byo-boot-e2e.yml` + `tests/e2e/resource-types/bring-your-own/verify-byo-python-boot.sh` | BYO boot | resource-types / bring-your-own | daily |
-| `scripts/verify-byo-{example,job,pair,tdk}.sh` | BYO variants | resource-types / bring-your-own | **never** |
+| `scripts/verify-byo-{example,job,pair,flisk}.sh` | BYO variants | resource-types / bring-your-own | **never** |
 | `scripts/verify-mcp.sh` | MCP resource | resource-types / mcp | **never** |
 | `scripts/verify-frontend-frameworks.sh` | every frontend framework | resource-types / frontend | **never** |
 | `agent-e2e.yml` + `scripts/agent-e2e.sh` (#1272) | agent resource, sessions, restart, MCP tools | resource-types / agent (reference) | PR, nightly, after release |
@@ -65,7 +65,7 @@ Measured over 1,000 workflow runs from 2026-10-16 21:32 to 2026-10-17 11:54 UTC 
 | `quickstart-e2e.yml` / `quickstart` | PR, daily, after release | 1.3 med | e2e | `e2e-journeys / quickstart` |
 | `smoke-e2e.yml` | PR (paths) | rare in window | e2e | `e2e-journeys / smoke` |
 | `go-dev-loop-e2e.yml` / `go-dev-loop` | PR (paths) | rare in window | e2e | `e2e-journeys / dev-loop-go` |
-| `cold-start-e2e.yml` / `cold-start` | daily, after release | failed 8 of 8: `TDK_LICENSE_KEY` not configured | e2e | `e2e-journeys / cold-start`; neutral with a warning when the secret is missing, plus a tracking issue |
+| `cold-start-e2e.yml` / `cold-start` | daily, after release | failed 8 of 8: `FLISK_LICENSE_KEY` not configured | e2e | `e2e-journeys / cold-start`; neutral with a warning when the secret is missing, plus a tracking issue |
 | `agent-e2e.yml` / `agent-e2e` | PR (paths), daily, after release | 3.1 med, failed 9 of 17 (A7 ordering, fixed in #1273; A4 failed again on `main`) | e2e | `e2e-resource-types / agent`; A4 tracked as flaky |
 | `byo-e2e.yml` / `byo-python` | PR (paths) | 0.3 med | e2e | `e2e-resource-types / bring-your-own` |
 | `byo-boot-e2e.yml` / `byo-python-boot` | daily | 1.2 | e2e | `e2e-resource-types / bring-your-own`, nightly case |
@@ -112,7 +112,7 @@ There is no live-stack coverage for `worker`, `migrator`, `library` or `sdk`. `m
 Alternatives were grouping by trigger (PR / nightly / manual) or by runner (bash / vitest). Both scatter one feature's tests and change when costs change. Grouping by what is proven (a resource type, a user journey, a real app, a host, scale) maps directly to the question a contributor asks: "I changed X, where is its e2e?" Triggers become per-suite metadata instead.
 
 ### `tests/e2e/<group>/<suite>/run.sh`, modeled on the agent suite
-The agent suite already has the needed properties: case ids runnable alone, `list` / `diagnostics` / `cleanup`, bounded `poll_until`, a `run` wrapper recording exit code and elapsed time, `assert envelope` for single-envelope checks, Traefik requests that resolve `*.localhost` to loopback, and stubs pointed at by `TDK_SERVICE_BASE_URL`. Bash plus small Node helpers was chosen over vitest for live stacks because each case maps to one CI step with its own log, contributors can run a case by hand, and nothing has to be built before a run. Vitest stays for stackless tests.
+The agent suite already has the needed properties: case ids runnable alone, `list` / `diagnostics` / `cleanup`, bounded `poll_until`, a `run` wrapper recording exit code and elapsed time, `assert envelope` for single-envelope checks, Traefik requests that resolve `*.localhost` to loopback, and stubs pointed at by `FLISK_SERVICE_BASE_URL`. Bash plus small Node helpers was chosen over vitest for live stacks because each case maps to one CI step with its own log, contributors can run a case by hand, and nothing has to be built before a run. Vitest stays for stackless tests.
 
 ### Shared helpers extracted, not copied
 `scripts/agent-e2e/{assert-json,mcp-client,stub,check-docs}.mjs` and the shell helpers in `scripts/agent-e2e.sh` move to `tests/e2e/lib/` (`lib.sh` sourced by every `run.sh`, plus the `.mjs` files). The agent suite is migrated first and must stay green. Lessons it already encodes become library behavior: wait for a *replaced* container after a restart (the old one answers `/ready` until Tilt swaps it); use `node:http` for requests that set `Host` (`fetch` drops it); and fail a setup request on any non-2xx status. In CI order, A7 ran after B0 had stopped the agent, and its checkpoint write got Traefik's `404 page not found` without failing. The later durability assertion then blamed the agent.
@@ -138,10 +138,10 @@ The axes found in the code today, which seed `tests/e2e/axes.json`:
 | `httpFramework` | `cli/src/backend-frameworks/registry.ts` | hono (default), express, fastify, nestjs | no live coverage today |
 | `frontendFramework` | `cli/src/frontend-frameworks/registry.ts` | react, vue, svelte, solid, preact, qwik, lit, vanilla, tanstack-router | `scripts/verify-frontend-frameworks.sh` (never run in CI) |
 | `agentRuntime` | `cli/src/agent-runtimes/registry.ts` | custom | — |
-| `agentDurability` | `tdk resource --durability` | files, postgres | postgres has no live coverage today |
+| `agentDurability` | `flisk resource --durability` | files, postgres | postgres has no live coverage today |
 | `feature` | `featuresEnabled` | prisma | — |
 | `infraService` | `OPTIONAL_INFRA_SERVICES` | monitoring, elk, debezium, golden_image, verdaccio | no live coverage today |
-| `byoVariant` | `examples/byo*`, `scripts/verify-byo-*.sh` | python, example, job, pair, tdk | `byo-e2e.yml`, `byo-boot-e2e.yml`, four unrun scripts |
+| `byoVariant` | `examples/byo*`, `scripts/verify-byo-*.sh` | python, example, job, pair, flisk | `byo-e2e.yml`, `byo-boot-e2e.yml`, four unrun scripts |
 | `example` | `examples/*` plus the saas-starter and restaurant repositories | default (`tdk-example`), one-backend, one-backend-python, one-backend-helm, saas-starter, restaurant | `example-e2e.yml`, `examples-e2e.yml`, `python-example-e2e.yml` |
 | `platform` | runner labels | ubuntu, windows, wsl2 | `windows-smoke.yml`, `wsl2-smoke.yml`, the Windows job in `release-binaries.yml` |
 | `installChannel` | how the CLI under test is installed | pr-tarball, npm, release-binary | install steps copied across e2e workflows |
@@ -168,7 +168,7 @@ The original plan gave each group its own pull request trigger. That makes every
 Retries turn flaky tests green and hide them. The CI report detects flakiness by finding a failure and a pass on the same commit, and a quarantine needs an issue link.
 
 ### Repo-local skills survive the sync
-`scripts/sync-tdk-skills.sh` currently deletes every directory in `.claude/skills` and every link in `.agents/skills`, then restores only the upstream ones. It will keep any skill listed in `.claude/skills/LOCAL` (one name per line) and re-create its `.agents/skills` link. `tdk-e2e-author` is the first entry. The D2 case of the agent suite extends to cover this. The alternative, putting the skill in the upstream `tdk-skills` repository, would make a contributor-only skill ship to every TDK user.
+`scripts/sync-tdk-skills.sh` currently deletes every directory in `.claude/skills` and every link in `.agents/skills`, then restores only the upstream ones. It will keep any skill listed in `.claude/skills/LOCAL` (one name per line) and re-create its `.agents/skills` link. `flisk-e2e-author` is the first entry. The D2 case of the agent suite extends to cover this. The alternative, putting the skill in the upstream `tdk-skills` repository, would make a contributor-only skill ship to every Flisk user.
 
 ### Migration order
 1. (#1272 has merged.) Extract `tests/e2e/lib/` and move the agent suite, then prove it green on CI.

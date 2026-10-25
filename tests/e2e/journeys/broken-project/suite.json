@@ -1,7 +1,7 @@
 {
   "group": "journeys",
   "suite": "broken-project",
-  "description": "Failure paths through a real tdk up (#1386): an unhealthy service fails startup per the health policy and its logs name the service (BP3), and an interrupted tdk up is cleaned up by tdk down, after which a second tdk up succeeds (BP4). Bad service.json and missing dependsOn run without Docker in cli/src/commands/__tests__/broken-project.test.ts.",
+  "description": "Failure paths through a real flisk up (#1386): an unhealthy service fails startup per the health policy and its logs name the service (BP3), and an interrupted flisk up is cleaned up by flisk down, after which a second flisk up succeeds (BP4). Bad service.json and missing dependsOn run without Docker in cli/src/commands/__tests__/broken-project.test.ts.",
   "paths": [
     "cli/src/commands/up.ts",
     "cli/src/utils/up-readiness.ts",
@@ -9,10 +9,19 @@
     "cli/src/utils/service-config-checks.ts",
     "tests/e2e/lib/**",
     "tests/e2e/journeys/broken-project/**",
-    ".github/workflows/broken-project-e2e.yml"
+    ".github/workflows/e2e-journeys.yml"
   ],
-  "cases": ["BP3", "BP4"],
-  "triggers": ["pr", "manual"],
+  "cases": [
+    "BP3",
+    "BP4"
+  ],
+  "triggers": [
+    "pr",
+    "manual"
+  ],
   "timeoutMinutes": 40,
-  "needsSecrets": []
+  "needsSecrets": [],
+  "checkName": "broken-project-e2e",
+  "install": true,
+  "freePostgres": true
 }

@@ -1,8 +1,8 @@
 # Live-stack resource-type suites (#1290, tracker #1279). The plan job reads each suite's suite.json and builds a matrix of the
 # suites that run for the event; each matrix leg boots one suite's stack and runs all of its cases. Replaces agent-e2e.yml.
-# On a pull request a leg tests that pull request's own packed CLI. After a release and nightly it tests the published npm
-# package. The gate job always runs and fails when the plan or any selected leg failed.
-name: 🤖 Resource-type E2E
+# On a pull request and nightly a leg tests the packed CLI of the checkout (main, nightly), so a regression on main shows up
+# before a release ships it. After a release it tests the published npm package. The gate job always runs and fails when the plan or any selected leg failed.
+name: 🧩 E2E | Resource types
 
 on:
   workflow_dispatch:
@@ -15,25 +15,17 @@ on:
         description: "Runner label for every job (default ubuntu-latest); try ubuntu-26.04 before ubuntu-latest moves to it (#1277)"
         type: string
         default: "ubuntu-latest"
+  # Pull requests run only the legs their changed files touch (the plan job below): a change to one frontend framework runs
+  # that framework's leg, a change to the shared frontend code runs every frontend leg. A PR that touches none of them runs
+  # no legs, and the gate passes. The full set runs on the merge queue, nightly and release candidates.
   pull_request:
-    branches: [main]
-    paths:
-      - "cli/src/commands/agent.ts"
-      - "cli/src/commands/restart.ts"
-      - "cli/src/mcp/**"
-      - "cli/src/agent-runtimes/**"
-      - "engine/**"
-      - ".claude/skills/**"
-      - "scripts/sync-tdk-skills.sh"
-      - "tests/e2e/lib/**"
-      - "tests/e2e/resource-types/**"
-      - ".github/workflows/e2e-resource-types.yml"
+  merge_group:
   schedule:
     - cron: "30 6 * * *"
   # Prove each release right after it is published. Read-only token, no secrets, main branch only; it checks out main itself
   # rather than the triggering run's ref, so nothing untrusted is executed.
   workflow_run: # zizmor: ignore[dangerous-triggers]
-    workflows: ["Release binaries and npm package"]
+    workflows: ["🚀 Release | Binaries and npm package"]
     types: [completed]
     branches: [main]
 
@@ -64,36 +56,53 @@ jobs:
         id: matrix
         env:
           EVENT: ${{ github.event_name }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
         run: |
           case "$EVENT" in
-            pull_request) trigger="pr" ;;
+            pull_request | merge_group) trigger="pr" ;;
             schedule) trigger="nightly" ;;
             workflow_run) trigger="release" ;;
             *) trigger="manual" ;;
           esac
-          # Pull requests run the backend languages with the most use plus Rust (#1489, which runs green on a live stack); nightly,
-          # release and manual runs run every language the registry declares. The backend suite gets one leg per language.
+          # Pull requests run the backend languages with the most use plus Rust (#1489), Go (#1491) and Node.js (#1490),
+          # all proven green on a live stack; nightly, release and manual runs run every language the registry declares. The
+          # backend suite's languages run in the "languages" group, one leg per language; the ORM suites run in the "orm" group (#1493).
           # Framework legs (one bun leg per non-default HTTP framework) run with the full set, not on pull requests.
           if [ "$trigger" = "pr" ]; then
-            languages="bun,python,rust"
+            languages="bun,python,rust,go,node"
             frameworks=""
-            frontends=""
+            # Frontend legs follow the changed files: cli/src/frontend-frameworks/<name>.ts runs <name>; any shared frontend
+            # code (the engine's Dockerfile and Traefik templates, the frontend suite itself) runs them all.
+            git fetch --no-tags --depth=1 origin "$BASE_SHA"
+            pr_files="$(git diff --name-only "$BASE_SHA" HEAD)"
+            all_frontends="$(node tests/e2e/lib/registry-axes.mjs | jq -r '.frontendFramework | join(",")')"
+            if printf '%s\n' "$pr_files" | grep -qE '^(runtime/engine/topologies/platform/docker/dockerfile/|cli/src/frontend-frameworks/(registry|types)\.ts$|tests/e2e/resource-types/frontend/|tests/e2e/lib/|cli/src/commands/resource\.ts$)'; then
+              frontends="$all_frontends"
+            else
+              frontends="$(printf '%s\n' "$pr_files" | sed -n -E 's#^cli/src/frontend-frameworks/([a-z-]+)\.ts$#\1#p' | sort -u | paste -sd, -)"
+            fi
           else
             languages="$(node tests/e2e/lib/registry-axes.mjs | jq -r '.language | join(",")')"
             frameworks="$(node tests/e2e/lib/registry-axes.mjs | jq -r '.httpFramework | join(",")')"
             frontends="$(node tests/e2e/lib/registry-axes.mjs | jq -r '.frontendFramework | join(",")')"
           fi
-          matrix="$(node tests/e2e/lib/suite-matrix.mjs resource-types "$trigger" "$languages" "$frameworks" "$frontends")"
-          # A pull request that changes only inside one suite's directory (tests/e2e/resource-types/<suite>/) runs only that
-          # suite's legs (#1290). Any other changed file (the CLI, the engine, shared lib, common.sh, this workflow) runs them all.
+          matrix="$(node tests/e2e/lib/suite-matrix.mjs resource-types,orm "$trigger" "$languages" "$frameworks" "$frontends")"
+          # A pull request that changes only inside one suite's directory (tests/e2e/<group>/<suite>/) runs only that suite's
+          # legs (#1290, #1493). Any other changed file (the CLI, the engine, shared lib, common.sh, this workflow) runs them all.
           if [ "$trigger" = "pr" ]; then
             git fetch --no-tags --depth=1 origin "$BASE_SHA"
             files="$(git diff --name-only "$BASE_SHA" HEAD)"
-            outside="$(printf '%s\n' "$files" | grep -v '^tests/e2e/resource-types/[^/]*/' || true)"
-            suites="$(printf '%s\n' "$files" | sed -n 's#^tests/e2e/resource-types/\([^/]*\)/.*#\1#p' | sort -u | paste -sd, -)"
-            if [ -z "$outside" ] && [ -n "$suites" ]; then
-              matrix="$(printf '%s' "$matrix" | jq -c --arg suites ",$suites," '{include: [.include[] | .suite as $s | select($suites | contains("," + $s + ","))]}')"
+            # A pull request that touches none of these paths runs no legs, and the gate passes. Keep this list in step with
+            # the paths the workflow used to filter on (the gate job must report on every pull request, so it is not in `on:`).
+            PR_PATHS='^(cli/src/commands/(agent|restart)\.ts|cli/src/mcp/|cli/src/agent-runtimes/|cli/src/frontend-frameworks/|runtime/engine/|\.claude/skills/|scripts/sync-tdk-skills\.sh|tests/e2e/(lib|resource-types|orm)/|\.github/workflows/e2e-resource-types\.yml$)'
+            if [ -z "$(printf '%s\n' "$files" | grep -E "$PR_PATHS" || true)" ]; then
+              matrix='{"include":[]}'
+              files=""
+            fi
+            outside="$(printf '%s\n' "$files" | grep -v -E '^tests/e2e/(resource-types|orm)/[^/]+/' || true)"
+            dirs="$(printf '%s\n' "$files" | sed -n -E 's#^tests/e2e/((resource-types|orm)/[^/]+)/.*#\1#p' | sort -u | paste -sd, -)"
+            if [ -z "$outside" ] && [ -n "$dirs" ]; then
+              matrix="$(printf '%s' "$matrix" | jq -c --arg dirs ",$dirs," '{include: [.include[] | .dir as $d | select($dirs | contains("," + $d + ","))]}')"
             fi
           fi
           echo "trigger=$trigger"
@@ -101,7 +110,7 @@ jobs:
           echo "$matrix"
 
   resource-types:
-    name: resource-types / ${{ matrix.label }}
+    name: ${{ matrix.group }} / ${{ matrix.label }}
     needs: plan
     if: needs.plan.outputs.matrix != '{"include":[]}'
     runs-on: ${{ github.event.inputs.runner || 'ubuntu-latest' }}
@@ -125,7 +134,7 @@ jobs:
         run: |
           if [ "$GITHUB_EVENT_NAME" = "workflow_run" ]; then
             version="$(node -p "require('./package.json').version")"
-          elif [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+          elif [ "$GITHUB_EVENT_NAME" = "pull_request" ] || [ "$GITHUB_EVENT_NAME" = "merge_group" ] || [ "$GITHUB_EVENT_NAME" = "schedule" ]; then
             version="local"
           elif [ -n "$VERSION_INPUT" ]; then
             version="$VERSION_INPUT"
@@ -133,36 +142,36 @@ jobs:
             version="latest"
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "Testing @tdk-landscape/tdk-cli-core@$version"
+          echo "Testing @flisk-sh/flisk@$version"
 
       - uses: ./.github/actions/setup-bun # zizmor: ignore[self-repository] composite action resolves from this commit
       - uses: ./.github/actions/setup-tilt # zizmor: ignore[self-repository] composite action resolves from this commit
       - uses: ./.github/actions/free-postgres-port # zizmor: ignore[self-repository] composite action resolves from this commit
 
-      - name: Install TDK
-        uses: ./.github/actions/install-tdk # zizmor: ignore[self-repository] composite action resolves from this commit
+      - name: Install Flisk
+        uses: ./.github/actions/install-flisk # zizmor: ignore[self-repository] composite action resolves from this commit
         with:
           version: ${{ steps.version.outputs.version }}
 
       - name: Tool versions and commit
         env:
-          TDK_VERSION: ${{ steps.version.outputs.version }}
+          FLISK_VERSION: ${{ steps.version.outputs.version }}
         run: |
           echo "commit: $(git rev-parse HEAD)"
-          echo "tested package: @tdk-landscape/tdk-cli-core@$TDK_VERSION"
+          echo "tested package: @flisk-sh/flisk@$FLISK_VERSION"
           echo "node: $(node --version)"
           echo "docker: $(docker --version)"
           echo "tilt: $(tilt version)"
-          echo "tdk: $(tdk --version)"
+          echo "flisk: $(flisk --version)"
 
       # The suite runs every case in order; each case is grouped in the log so a red case is easy to find.
       - name: Run the suite
         env:
-          SUITE: ${{ matrix.suite }}
+          DIR: ${{ matrix.dir }}
           LANGUAGE: ${{ matrix.language }}
           FRAMEWORK: ${{ matrix.framework }}
           BYO_VARIANT: ${{ matrix.variant }}
-        run: tests/e2e/resource-types/"$SUITE"/run.sh all
+        run: tests/e2e/"$DIR"/run.sh all
 
       # Failure evidence (#1382): on a failed run, keep the Docker and Tilt logs, service status and generated files for 7 days.
       - name: Collect failure evidence
@@ -174,21 +183,21 @@ jobs:
       - name: Collect diagnostics
         if: failure()
         env:
-          SUITE: ${{ matrix.suite }}
-        run: tests/e2e/resource-types/"$SUITE"/run.sh diagnostics
+          DIR: ${{ matrix.dir }}
+        run: tests/e2e/"$DIR"/run.sh diagnostics
       - name: Upload failure artifacts
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: e2e-resource-types-${{ matrix.label }}-${{ github.run_id }}
-          path: ${{ runner.temp }}/tdk-e2e/${{ matrix.suite }}/artifacts
+          path: ${{ runner.temp }}/flisk-e2e/${{ matrix.suite }}/artifacts
           if-no-files-found: warn
           retention-days: 14
       - name: Tear down
         if: always()
         env:
-          SUITE: ${{ matrix.suite }}
-        run: tests/e2e/resource-types/"$SUITE"/run.sh cleanup
+          DIR: ${{ matrix.dir }}
+        run: tests/e2e/"$DIR"/run.sh cleanup
 
   # Always runs, so the gate reports a result even when no suite is selected. A selected suite that failed or was cancelled
   # fails the gate; a suite that was not selected does not.
@@ -206,5 +215,5 @@ jobs:
           LEGS: ${{ needs.resource-types.result }}
         run: |
           echo "plan: $PLAN; resource-type legs: $LEGS"
-          if [ "$PLAN" != "success" ]; then echo "::error::The plan job did not succeed"; exit 1; fi
+          if [ "$PLAN" != "success" ] && [ "$PLAN" != "skipped" ]; then echo "::error::The plan job did not succeed"; exit 1; fi
           if [ "$LEGS" = "failure" ] || [ "$LEGS" = "cancelled" ]; then echo "::error::A selected suite failed"; exit 1; fi

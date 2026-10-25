@@ -1,4 +1,4 @@
-// Copyright (c) 2026 TDK Landscape contributors
+// Copyright (c) 2026 Flisk Landscape contributors
 // SPDX-License-Identifier: MIT
 // One pull request comment with unit test counts, failed test names, E2E results, coverage against the ratchet baseline
 // and a link to the run's logs and artifacts (#1385). Reads only JSON: the Vitest JSON reporter output, the coverage
@@ -20,7 +20,7 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-export const MARKER = "<!-- tdk-test-summary -->";
+export const MARKER = "<!-- flisk-test-summary -->";
 const MAX_FAILED = 20;
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 

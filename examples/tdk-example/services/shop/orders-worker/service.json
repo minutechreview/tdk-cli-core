@@ -1,5 +1,5 @@
 {
-  "$schema": "https://tdk-landscape.github.io/schema.service.json",
+  "$schema": "https://flisk.sh/schema.service.json",
   "schemaVersion": 1,
   "appName": "orders-worker",
   "appType": "worker",
@@ -7,7 +7,7 @@
   "port": 4001,
   "featuresEnabled": ["nats"],
   "params": {
-    "NATS_URL": "nats://tdk_example_nats:4222"
+    "NATS_URL": "nats://flisk_example_nats:4222"
   },
   "dependsOn": ["orders-api"]
 }

@@ -25,7 +25,7 @@ export interface ResourceConfigFields {
     apiPath?: string;
     /** Path the container healthcheck probes (and Traefik too, unless traefik.healthCheck is set). Defaults to /health. */
     healthCheckPath?: string;
-    /** Post-start check through the public proxy URL, run by `tdk up`. See utils/smoke.ts. */
+    /** Post-start check through the public proxy URL, run by `flisk up`. See utils/smoke.ts. */
     smoke?: import("../utils/smoke.js").SmokeConfig;
     /** Traefik routing overrides. `healthCheck` is the path Traefik's load balancer probes; defaults to healthCheckPath. */
     traefik?: {
@@ -35,12 +35,12 @@ export interface ResourceConfigFields {
     };
     /** bring-your-own only: false keeps the resource off Traefik (no route, no health check). Defaults to true. */
     exposeViaProxy?: boolean;
-    /** On-demand scaling via Sablier (Premium - requires TDK_LICENSE_KEY). See hasSablierLicense() in extension-fetch.ts. */
+    /** On-demand scaling via Sablier (Premium - requires FLISK_LICENSE_KEY). See hasSablierLicense() in extension-fetch.ts. */
     sablier?: {
         enable?: boolean;
         group?: string;
         sessionDuration?: string;
-        /** Skip this resource during `tdk up` entirely; a Traefik static route wakes it on first request. Requires enable: true. */
+        /** Skip this resource during `flisk up` entirely; a Traefik static route wakes it on first request. Requires enable: true. */
         deferStart?: boolean;
     };
     /** Optional dockerfile path relative to resource dir */
@@ -88,6 +88,11 @@ export interface FileGenerationTask {
 }
 export type ResourceType = "frontend" | "backend" | "library" | "sdk" | "worker" | "migrator" | "mcp" | "agent" | "bring-your-own";
 export declare const CREATABLE_RESOURCE_TYPES: readonly ["backend", "frontend", "worker", "mcp", "agent", "bring-your-own"];
+/**
+ * Every value `flisk resource --type` accepts: the creatable types plus `sdk`, which registers a
+ * package that already exists instead of scaffolding one.
+ */
+export declare const RESOURCE_TYPE_VALUES: readonly ["backend", "frontend", "worker", "mcp", "agent", "bring-your-own", "sdk"];
 export type CreatableResourceType = Extract<ResourceType, (typeof CREATABLE_RESOURCE_TYPES)[number]>;
 export declare function isCreatableResourceType(value: unknown): value is CreatableResourceType;
 export type ResourceStatus = "ready" | "pending" | "error" | "unknown";

@@ -1,11 +1,11 @@
-// Copyright (c) 2026 TDK Landscape contributors
+// Copyright (c) 2026 Flisk Landscape contributors
 // SPDX-License-Identifier: MIT
 // The broken-project fixture (#1386), the part that needs no Docker or Tilt. Scenarios 3 (unhealthy service) and 4
 // (interrupted up) need a running stack, so they live in tests/e2e/journeys/broken-project.
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { createTempProject, runTdk } from "../../test-support/index.js";
+import { createTempProject, runFlisk } from "../../test-support/index.js";
 
 interface DoctorCheck {
   name: string;
@@ -15,7 +15,7 @@ interface DoctorCheck {
 }
 
 describe("broken project: bad service.json", () => {
-  it("refuses tdk up before startup and leaves no generated stack behind", () => {
+  it("refuses flisk up before startup and leaves no generated stack behind", () => {
     // A truncated service.json, next to a valid one: the whole run must stop before anything is generated.
     const root = createTempProject({
       projectJson: {},
@@ -27,7 +27,7 @@ describe("broken project: bad service.json", () => {
       },
     });
 
-    const result = runTdk(["up"], { cwd: root, timeout: 60_000 });
+    const result = runFlisk(["up"], { cwd: root, timeout: 60_000 });
 
     expect(result.status).toBe(1);
     expect(result.stderr).toMatch(
@@ -35,7 +35,7 @@ describe("broken project: bad service.json", () => {
     );
     expect(result.stderr).toMatch(/invalid JSON/);
     // Nothing was generated and no Tilt was started for the project.
-    expect(existsSync(join(root, ".tdk", ".tdk-out"))).toBe(false);
+    expect(existsSync(join(root, ".flisk", ".flisk-out"))).toBe(false);
   });
 });
 
@@ -54,8 +54,8 @@ describe("broken project: missing dependency", () => {
       },
     });
 
-    // `tdk doctor` exits non-zero here (the environment checks are not what this test is about), so read the JSON, not the status.
-    const result = runTdk(["doctor", "--json"], { cwd: root, timeout: 120_000 });
+    // `flisk doctor` exits non-zero here (the environment checks are not what this test is about), so read the JSON, not the status.
+    const result = runFlisk(["doctor", "--json"], { cwd: root, timeout: 120_000 });
     const report = JSON.parse(result.stdout) as {
       data: { checks: DoctorCheck[] };
     };

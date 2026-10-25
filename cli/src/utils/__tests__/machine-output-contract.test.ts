@@ -1,4 +1,4 @@
-// Copyright (c) 2026 TDK Landscape contributors
+// Copyright (c) 2026 Flisk Landscape contributors
 // SPDX-License-Identifier: MIT
 import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
@@ -6,10 +6,14 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
-import { SCHEMA_VERSION } from "../machine-output.js";
+import {
+  isMachineOutputEnvelope,
+  type MachineOutputEnvelope,
+  SCHEMA_VERSION,
+} from "../machine-output.js";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../..");
-const cliBin = path.join(repoRoot, "cli", "bin", "tdk.js");
+const cliBin = path.join(repoRoot, "cli", "bin", "flisk.js");
 
 const MASTER_CONFIG_FILES = [
   "TILT_TECH_STACK.star",
@@ -29,18 +33,18 @@ describe("machine output contract: every --json command emits the standard envel
   });
 
   function createProject(): string {
-    const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), "tdk-machine-contract-"));
+    const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), "flisk-machine-contract-"));
     projectRoots.push(projectRoot);
 
-    // .tdk/project.json
-    fs.mkdirSync(path.join(projectRoot, ".tdk"), { recursive: true });
+    // .flisk/project.json
+    fs.mkdirSync(path.join(projectRoot, ".flisk"), { recursive: true });
     fs.writeFileSync(
-      path.join(projectRoot, ".tdk", "project.json"),
+      path.join(projectRoot, ".flisk", "project.json"),
       JSON.stringify({ project: { name: "test-project" } }),
     );
 
-    // Master config files in .tdk/.tdk-out
-    const outDir = path.join(projectRoot, ".tdk", ".tdk-out");
+    // Master config files in .flisk/.flisk-out
+    const outDir = path.join(projectRoot, ".flisk", ".flisk-out");
     fs.mkdirSync(outDir, { recursive: true });
     for (const file of MASTER_CONFIG_FILES) {
       fs.writeFileSync(path.join(outDir, file), "# generated\n");
@@ -71,19 +75,21 @@ describe("machine output contract: every --json command emits the standard envel
     });
   }
 
-  function assertStandardEnvelope(stdout: string) {
+  function assertStandardEnvelope(stdout: string): MachineOutputEnvelope {
     const text = stdout.trim();
     // Parse the JSON envelope (handle either single line or multiline JSON like projects)
-    let envelope: any;
+    let parsed: unknown;
     try {
-      envelope = JSON.parse(text);
+      parsed = JSON.parse(text);
     } catch {
       // Find the last JSON block/line
       const lines = text.split(/\r?\n/).filter((l) => l.trim().startsWith("{"));
       expect(lines.length).toBeGreaterThan(0);
-      envelope = JSON.parse(lines[lines.length - 1]);
+      parsed = JSON.parse(lines[lines.length - 1] as string);
     }
 
+    expect(isMachineOutputEnvelope(parsed)).toBe(true);
+    const envelope = parsed as MachineOutputEnvelope;
     expect(Object.keys(envelope).sort()).toEqual(["data", "errors", "schemaVersion"].sort());
     expect(envelope.schemaVersion).toBe(SCHEMA_VERSION);
     expect(Array.isArray(envelope.errors)).toBe(true);

@@ -4,7 +4,7 @@
 # stays in its own workflows. release-binaries.yml's publish job reads this workflow's green runs by commit SHA and refuses
 # to publish a commit that has none.
 # Runs on a release/* branch (workflow_dispatch) or an rc-* tag only, never on every push. A pull request does not run it.
-name: 🚦 Release candidate
+name: 🧪 Release | Candidate
 
 on:
   workflow_dispatch:
@@ -92,7 +92,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/rc-lifecycle"
           packed="$(npm pack --pack-destination "$RUNNER_TEMP/rc-lifecycle" --silent)"
           mv "$RUNNER_TEMP/rc-lifecycle/$packed" "$RUNNER_TEMP/rc-lifecycle/tdk-cli.tgz"
-          cp cli/package.json scripts/package-lifecycle-smoke.sh "$RUNNER_TEMP/rc-lifecycle/"
+          cp cli/package.json scripts/package-lifecycle-smoke.sh scripts/install-global.mjs "$RUNNER_TEMP/rc-lifecycle/"
 
       # The same script as the packed CLI lifecycle smoke: install the previous release, upgrade to this tarball, check the version,
       # run --help, uninstall. Clean Node 22 container, no Tilt or Docker project.
@@ -136,31 +136,31 @@ jobs:
           path: ${{ runner.temp }}/rc-tarball
 
       - name: Install the candidate tarball
-        uses: ./.github/actions/install-tdk # zizmor: ignore[self-repository] composite action resolves from this commit
+        uses: ./.github/actions/install-flisk # zizmor: ignore[self-repository] composite action resolves from this commit
         with:
           tarball: ${{ runner.temp }}/rc-tarball/tdk-cli.tgz
 
       - name: Check the candidate version
         env:
           VERSION: ${{ needs.package.outputs.version }}
-        run: test "$(tdk --version)" = "$VERSION"
+        run: test "$(flisk --version)" = "$VERSION"
 
       - name: Run the quickstart cases (Q1-Q4)
         env:
-          TDK_VERSION: ${{ needs.package.outputs.version }}
+          FLISK_VERSION: ${{ needs.package.outputs.version }}
         run: tests/e2e/journeys/quickstart/run.sh Q1 Q2 Q3 Q4
 
       - name: Diagnostics on failure
         if: failure()
         run: |
           cd "$RUNNER_TEMP/shop" 2>/dev/null || exit 0
-          echo "::group::tdk up log (last 300 lines)"
+          echo "::group::flisk up log (last 300 lines)"
           tail -300 up.log 2>/dev/null || true
           echo "::endgroup::"
           docker ps -a --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' || true
-          tdk doctor || true
+          flisk doctor || true
 
-      - name: tdk down
+      - name: flisk down
         if: always()
         run: tests/e2e/journeys/quickstart/run.sh cleanup
 
@@ -192,14 +192,14 @@ jobs:
           path: ${{ runner.temp }}/rc-tarball
 
       - name: Install the candidate tarball
-        uses: ./.github/actions/install-tdk # zizmor: ignore[self-repository] composite action resolves from this commit
+        uses: ./.github/actions/install-flisk # zizmor: ignore[self-repository] composite action resolves from this commit
         with:
           tarball: ${{ runner.temp }}/rc-tarball/tdk-cli.tgz
 
       - name: Check the candidate version
         env:
           VERSION: ${{ needs.package.outputs.version }}
-        run: test "$(tdk --version)" = "$VERSION"
+        run: test "$(flisk --version)" = "$VERSION"
 
       - name: Tool versions and commit
         run: |
@@ -207,7 +207,7 @@ jobs:
           echo "node: $(node --version)"
           echo "docker: $(docker --version)"
           echo "tilt: $(tilt version)"
-          echo "tdk: $(tdk --version)"
+          echo "flisk: $(flisk --version)"
 
       - name: Run the suite
         env:
@@ -228,7 +228,7 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: release-candidate-${{ matrix.label }}-${{ github.run_id }}
-          path: ${{ runner.temp }}/tdk-e2e/${{ matrix.suite }}/artifacts
+          path: ${{ runner.temp }}/flisk-e2e/${{ matrix.suite }}/artifacts
           if-no-files-found: warn
           retention-days: 14
 

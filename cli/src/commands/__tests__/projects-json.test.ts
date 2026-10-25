@@ -1,7 +1,7 @@
-// Copyright (c) 2026 TDK Landscape contributors
+// Copyright (c) 2026 Flisk Landscape contributors
 // SPDX-License-Identifier: MIT
 import { describe, expect, it } from "vitest";
-import { createTempProject, runTdk } from "../../test-support/index.js";
+import { createTempProject, runFlisk } from "../../test-support/index.js";
 
 const masterConfigFiles = ["TILT_TECH_STACK.star", "TILT_RESOURCE_DEFAULTS.star", "spec.master"];
 
@@ -16,7 +16,7 @@ function createProject(configured: boolean | string[]): string {
 }
 
 function runProjects(projectRoot: string, check: boolean) {
-  return runTdk(["projects", "--json", ...(check ? ["--check"] : [])], {
+  return runFlisk(["projects", "--json", ...(check ? ["--check"] : [])], {
     cwd: projectRoot,
     env: { NO_COLOR: undefined, FORCE_COLOR: "1" },
   });
@@ -28,7 +28,7 @@ function parseReport(result: ReturnType<typeof runProjects>) {
   return JSON.parse(result.stdout);
 }
 
-describe("tdk projects --json", () => {
+describe("flisk projects --json", () => {
   it("prints the project report without --check and returns 1 for missing config with --check", () => {
     const projectRoot = createProject(false);
     const plain = runProjects(projectRoot, false);

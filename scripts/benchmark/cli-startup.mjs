@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Copyright (c) 2026 TDK Landscape contributors
+// Copyright (c) 2026 Flisk Landscape contributors
 // SPDX-License-Identifier: MIT
 
 import { spawnSync } from "node:child_process";
@@ -16,9 +16,9 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
-const cliPath = resolve(scriptDir, "../../cli/bin/tdk.js");
+const cliPath = resolve(scriptDir, "../../cli/bin/flisk.js");
 const builtCliPath = resolve(scriptDir, "../../cli/dist/cli.js");
-const resultsDir = resolve(scriptDir, "../../benchmarks/results");
+const resultsDir = resolve(scriptDir, "../../docs/benchmarks/results");
 const { values } = parseArgs({
 	options: {
 		help: { type: "boolean", short: "h" },
@@ -42,7 +42,7 @@ Options:
   --warmup <count>     Warm-up runs per command and size (default: 1)
   --timeout-ms <ms>    Per-command timeout (default: 60000)
   --temp-dir <path>    Parent directory for temporary fixtures and child temp files
-  --output <path>      JSON result path (default: benchmarks/results/)
+  --output <path>      JSON result path (default: docs/benchmarks/results/)
   --skip-status        Omit the probe-bound status command
   -h, --help           Show this help`);
 	process.exit(0);
@@ -71,14 +71,14 @@ const runs = integerOption("runs", values.runs, 1);
 const warmupCount = integerOption("warmup", values.warmup, 0);
 const timeoutMs = integerOption("timeout-ms", values["timeout-ms"], 1);
 const allCommands = [
-	{ label: "tdk version", args: ["version"] },
-	{ label: "tdk --help", args: ["--help"] },
-	{ label: "tdk resources", args: ["resources"] },
-	{ label: "tdk stacks", args: ["stacks"] },
-	{ label: "tdk status", args: ["status"] },
+	{ label: "flisk version", args: ["version"] },
+	{ label: "flisk --help", args: ["--help"] },
+	{ label: "flisk resources", args: ["resources"] },
+	{ label: "flisk stacks", args: ["stacks"] },
+	{ label: "flisk status", args: ["status"] },
 ];
 const commands = values["skip-status"]
-	? allCommands.filter((command) => command.label !== "tdk status")
+	? allCommands.filter((command) => command.label !== "flisk status")
 	: allCommands;
 
 function roundMs(value) {
@@ -94,7 +94,7 @@ function median(values) {
 }
 
 function makeFixture(projectRoot, serviceCount) {
-	const configDir = join(projectRoot, ".tdk");
+	const configDir = join(projectRoot, ".flisk");
 	mkdirSync(configDir, { recursive: true });
 	const project = {
 		version: "1.0",
@@ -271,8 +271,8 @@ function printTable(rows) {
 	const values = rows.map((row) =>
 		[
 			row.services,
-			row.command === "tdk status"
-				? "tdk status (probe-dominated)"
+			row.command === "flisk status"
+				? "flisk status (probe-dominated)"
 				: row.command,
 			row.runs,
 			row.medianMs,
@@ -301,7 +301,7 @@ function main() {
 	}
 	const tempBase = resolve(values["temp-dir"] ?? tmpdir());
 	mkdirSync(tempBase, { recursive: true });
-	const tempRoot = mkdtempSync(join(tempBase, "tdk-cli-startup-"));
+	const tempRoot = mkdtempSync(join(tempBase, "flisk-cli-startup-"));
 	const results = [];
 	try {
 		for (const serviceCount of sizes) {
@@ -349,7 +349,7 @@ function main() {
 			},
 			environment: {
 				inheritedHostEnvironment: true,
-				isolatedFromUserTdkConfigAndPath: false,
+				isolatedFromUserFliskConfigAndPath: false,
 				childOverrides: ["TMP", "TEMP", "TMPDIR", "NO_COLOR"],
 			},
 			options: {
@@ -363,9 +363,9 @@ function main() {
 			notes: [
 				"Each sample starts a fresh Node process and measures wall time through command exit; fixture generation and cleanup are outside the timed interval.",
 				"Service manifests contain only schemaVersion, appName, appType, and stack; this measures count-based discovery, not rich validation or generated runtime files.",
-				"Child processes inherit host environment except TMP, TEMP, TMPDIR, and NO_COLOR; user TDK config and PATH are not isolated.",
-				"tdk status includes the read-only Tilt probe and is not discovery-only; if Tilt is unavailable it may wait up to the 10-second timeout.",
-				"A non-monotonic tdk stacks median may reflect measurement noise; inspect raw samples before drawing scaling conclusions.",
+				"Child processes inherit host environment except TMP, TEMP, TMPDIR, and NO_COLOR; user Flisk config and PATH are not isolated.",
+				"flisk status includes the read-only Tilt probe and is not discovery-only; if Tilt is unavailable it may wait up to the 10-second timeout.",
+				"A non-monotonic flisk stacks median may reflect measurement noise; inspect raw samples before drawing scaling conclusions.",
 				"No containers or Tilt services are started.",
 				"CLI output is captured. Compare results only on like-for-like hardware, operating system, and Node runtime; this is not a CI performance gate.",
 			],

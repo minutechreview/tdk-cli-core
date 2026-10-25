@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Copyright (c) 2026 TDK Landscape contributors
+# Copyright (c) 2026 Flisk Landscape contributors
 # SPDX-License-Identifier: MIT
 # Repository checks that need no stack: the skill symlinks, the skill sync script and the documentation links. They were cases
 # of the agent suite; they run in make test-shell instead, since they need only the checkout and no Docker or Tilt.
@@ -26,8 +26,8 @@ D1() {
     [ -e "$link" ] || { echo "dangling symlink: $link -> $(readlink "$link")"; bad=1; }
   done
   [ "$bad" -eq 0 ] || die "skill symlinks are inconsistent"
-  [ -d .claude/skills/tdk-agent-ops ] || die "tdk-agent-ops skill is missing"
-  [ -d .claude/skills/tdk-e2e-author ] || die "tdk-e2e-author skill is missing"
+  [ -d .claude/skills/flisk-agent-ops ] || die "flisk-agent-ops skill is missing"
+  [ -d .claude/skills/flisk-e2e-author ] || die "flisk-e2e-author skill is missing"
 }
 
 D2() {
@@ -41,11 +41,11 @@ D2() {
   mkdir -p "$tmp/repo/.claude/skills/removed-upstream"; echo "# gone" >"$tmp/repo/.claude/skills/removed-upstream/SKILL.md"
   ln -sfn ../../.claude/skills/removed-upstream "$tmp/repo/.agents/skills/removed-upstream"
   # Fixture source repo: one kept skill and one new one.
-  mkdir -p "$tmp/src/.claude-plugin" "$tmp/src/plugins/tdk-cli/.claude-plugin" "$tmp/src/skills/kept-upstream" "$tmp/src/skills/new-upstream"
+  mkdir -p "$tmp/src/.claude-plugin" "$tmp/src/plugins/flisk-cli/.claude-plugin" "$tmp/src/skills/kept-upstream" "$tmp/src/skills/new-upstream"
   echo '{"name":"fixture","plugins":[]}' >"$tmp/src/.claude-plugin/marketplace.json"
-  echo '{"name":"tdk-cli"}' >"$tmp/src/plugins/tdk-cli/.claude-plugin/plugin.json"
+  echo '{"name":"flisk-cli"}' >"$tmp/src/plugins/flisk-cli/.claude-plugin/plugin.json"
   echo "# kept" >"$tmp/src/skills/kept-upstream/SKILL.md"; echo "# new" >"$tmp/src/skills/new-upstream/SKILL.md"
-  (cd "$tmp/repo" && TDK_SKILLS_REPO="$tmp/src" bash scripts/sync-tdk-skills.sh) || die "sync-tdk-skills.sh failed on the fixture"
+  (cd "$tmp/repo" && FLISK_SKILLS_REPO="$tmp/src" bash scripts/sync-tdk-skills.sh) || die "sync-tdk-skills.sh failed on the fixture"
   ls -l "$tmp/repo/.agents/skills"
   local name kept=0
   while IFS= read -r name; do
@@ -54,7 +54,7 @@ D2() {
     [ -e "$tmp/repo/.agents/skills/$name/SKILL.md" ] || die "the .agents/skills/$name link no longer resolves"
     echo "kept repo-local skill: $name"; kept=$((kept + 1))
   done <"$REPO_ROOT/.claude/skills/LOCAL"
-  for name in tdk-agent-ops tdk-e2e-author; do
+  for name in flisk-agent-ops flisk-e2e-author; do
     grep -qx "$name" "$REPO_ROOT/.claude/skills/LOCAL" || die "$name is not listed in .claude/skills/LOCAL"
   done
   [ ! -e "$tmp/repo/.claude/skills/removed-upstream" ] || die "a skill removed upstream survived in .claude/skills"

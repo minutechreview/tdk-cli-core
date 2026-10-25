@@ -1,7 +1,7 @@
 {
   "group": "journeys",
   "suite": "smoke",
-  "description": "The smoke manifest block through a real tdk up (moved from scripts/verify-smoke.sh, #1298): a passing smoke block, then a missing route that must fail with a retained record. One case, because both phases share one project and one tdk up.",
+  "description": "The smoke manifest block through a real flisk up (moved from scripts/verify-smoke.sh, #1298): a passing smoke block, then a missing route that must fail with a retained record. One case, because both phases share one project and one flisk up.",
   "paths": [
     "cli/src/utils/smoke.ts",
     "cli/src/commands/up.ts",
@@ -9,10 +9,16 @@
     "cli/dist/commands/up.js",
     "tests/e2e/lib/**",
     "tests/e2e/journeys/smoke/**",
-    ".github/workflows/smoke-e2e.yml"
+    ".github/workflows/e2e-journeys.yml"
   ],
-  "cases": ["SM1"],
-  "triggers": ["pr", "manual"],
+  "cases": [
+    "SM1"
+  ],
+  "triggers": [
+    "pr",
+    "manual"
+  ],
   "timeoutMinutes": 25,
-  "needsSecrets": []
+  "needsSecrets": [],
+  "checkName": "smoke-e2e"
 }

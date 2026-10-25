@@ -1,4 +1,4 @@
-name: 🏷️ PR area labels
+name: 🏷️ Automation | PR area labels
 
 on:
   pull_request_target: # zizmor: ignore[dangerous-triggers] never checks out or runs PR code; only reads the changed-file list and PR metadata, then writes labels and review requests
@@ -16,7 +16,7 @@ permissions:
 jobs:
   label:
     name: Apply labels from changed paths
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 2
     steps:
       # Not on `labeled`: with sync-labels the labeler would strip a tech label someone

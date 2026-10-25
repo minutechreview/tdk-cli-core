@@ -1,6 +1,6 @@
 # 7. Run unit tests in a matrix
 
-Unit tests run in one `cli` vitest job today, and the matrix on this page is **proposed, not yet in CI**. This page describes how to split them into parallel matrix legs in the same shape as the e2e groups (see [run e2e suites in a matrix](06-e2e-matrix.md)), and how to write a new unit test so it fits a leg. It is the model for the coverage and unit-test items in the [test-quality initiative](https://github.com/tdk-landscape/tdk-cli-core/issues/1388).
+Unit tests run in one `cli` vitest job today, and the matrix on this page is **proposed, not yet in CI**. This page describes how to split them into parallel matrix legs in the same shape as the e2e groups (see [run e2e suites in a matrix](06-e2e-matrix.md)), and how to write a new unit test so it fits a leg. It is the model for the coverage and unit-test items in the [test-quality initiative](https://github.com/flisk-sh/flisk/issues/1388).
 
 ## What a unit test is here
 
@@ -9,7 +9,7 @@ A unit test lives in `cli/src/**/__tests__/` and does not boot a live stack. Thr
 | Kind | File pattern | Runs in |
 |---|---|---|
 | unit | `*.test.ts` that mocks I/O | the unit matrix |
-| CLI integration | `*-e2e.test.ts` that spawns `tdk` on a temp project, no stack | the vitest run; not a live-stack group |
+| CLI integration | `*-e2e.test.ts` that spawns `flisk` on a temp project, no stack | the vitest run; not a live-stack group |
 | stack-backed | anything that boots a running Tilt or Compose stack | a live-stack e2e suite, see [write an e2e test](05-write-e2e.md) |
 
 Some tests run a real tool without a stack, such as Tilt for the Starlark generator tests. They are not fully mocked. They stay in the unit job until they are split out, so do not describe them as mocked.
@@ -87,13 +87,13 @@ Rules for legs:
 
 A completeness test reads each exported `Command` and fails when it registers one of these flags but has no row in the table. A new command cannot add `--json` without joining the contract.
 
-A command's own test file then covers only what is specific to that command (what `down` stops, what `upgrade` compares). Share the setup code too: build a project with `createTempProject`, run it with `runTdk`, and read the envelope with `parseEnvelope` from `cli/src/test-support/`, instead of copying `mkdtempSync` and `spawnSync` into every file. The contract tests are tracked in #1396; until they land, follow the same table shape in your own file.
+A command's own test file then covers only what is specific to that command (what `down` stops, what `upgrade` compares). Share the setup code too: build a project with `createTempProject`, run it with `runFlisk`, and read the envelope with `parseEnvelope` from `cli/src/test-support/`, instead of copying `mkdtempSync` and `spawnSync` into every file. The contract tests are tracked in #1396; until they land, follow the same table shape in your own file.
 
 ## Shared test helpers
 
 Tests that start the CLI or build a project on disk use `cli/src/test-support/` instead of copying the boilerplate:
 
-- `runTdk(args, { cwd, input?, env? })` runs `tdk` in a child process and returns `{ status, stdout, stderr }`. It throws when the child cannot run or is killed, so a missing exit code never reads as a pass.
+- `runFlisk(args, { cwd, input?, env? })` runs `flisk` in a child process and returns `{ status, stdout, stderr }`. It throws when the child cannot run or is killed, so a missing exit code never reads as a pass.
 - `createTempProject(spec)` writes a project under a temporary directory and removes it when the test finishes. `spec` lists stacks, resources and generated config files, so a test states only what it needs.
 - `parseEnvelope(stdout)` asserts that stdout is one JSON line with `schemaVersion`, `data` and `errors`, and returns it.
 
@@ -109,7 +109,9 @@ The folder is excluded from the build and from the npm package.
 
 ## Coverage per area
 
-Coverage is measured per area, not globally. Each leg writes its coverage data, the final job merges it, and the gate compares each area with its recorded baseline (see the ratchet item in the initiative). An area is one of: command implementations, validation, discovery, stack and project handling, install and update.
+Coverage is measured per area, not globally. Each leg writes its coverage data, the final job merges it, and the gate compares each area with its recorded baseline in [`cli/coverage-baseline.json`](../../cli/coverage-baseline.json). An area is one of: command implementations, validation, discovery, stack and project handling, install and update.
+
+For details on how the coverage ratchet script works, how to raise baselines when adding tests, and where CI reports coverage summaries, see [Coverage baseline and the ratchet process in CONTRIBUTING.md](../../.github/CONTRIBUTING.md#coverage-baseline-and-the-ratchet-process).
 
 ## Check it locally
 

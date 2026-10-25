@@ -1,4 +1,4 @@
-// Copyright (c) 2026 TDK Landscape contributors
+// Copyright (c) 2026 Flisk Landscape contributors
 // SPDX-License-Identifier: MIT
 
 import * as fs from "node:fs";
@@ -19,8 +19,17 @@ import {
   TILTIGNORE_FILE,
 } from "../utils/constants.js";
 import { writeTextFile } from "../utils/file-helpers.js";
-import { assertTdkGeneratedPath } from "../utils/generated-paths.js";
+import { assertFliskGeneratedPath } from "../utils/generated-paths.js";
 import { DEFAULT_ALWAYS_ENABLED_INFRA } from "../utils/project-config-defaults.js";
+import {
+  describeLayoutProblems,
+  EXTENSION_DIRS,
+  hasExtensionLayout,
+  inspectExtensionLayout,
+  resolveExtensionDir,
+  resolveSharedPlatformDir,
+  resolveTiltfile,
+} from "../utils/runtime-layout.js";
 import {
   generatedFieldErrorsForFile,
   validateServiceManifestFile,
@@ -39,12 +48,12 @@ export function loadTemplate(filename: string): string {
     path.join(__dirname, "..", "..", "templates"), // Standard: dist/generator -> templates (also covers src/generator -> ../../templates in dev/test)
     path.join(__dirname, "..", "templates"), // Installed: dist/generator -> dist/templates
     path.join(__dirname, "..", "..", "..", "templates"), // Development: cli/dist/generator -> cli/templates
-    path.join(process.cwd(), "node_modules", "@tdk-landscape", "tdk-cli-core", "templates"), // Monorepo root
+    path.join(process.cwd(), "node_modules", "@flisk-sh", "flisk", "templates"), // Monorepo root
     // Compiled single-file binary (bun build --compile): __dirname resolves inside the
     // virtual $bunfs filesystem, not a real path, so fall back to the directory the actual
-    // executable lives in. release-binaries.sh bundles cli/templates at tdk-cli/cli/templates
+    // executable lives in. release-binaries.sh bundles cli/templates at flisk-cli/cli/templates
     // next to the platform binaries.
-    path.join(path.dirname(process.execPath), "tdk-cli", "cli", "templates"),
+    path.join(path.dirname(process.execPath), "flisk-cli", "cli", "templates"),
   ];
 
   const triedPaths: string[] = [];
@@ -64,11 +73,11 @@ export function loadTemplate(filename: string): string {
 // Templates used to be loaded eagerly here, at module initialization. That
 // meant importing this module at all (e.g. via cli.ts -> config.ts/project.ts)
 // threw immediately whenever the bundled templates folder was missing or
-// stale - bricking every single `tdk` command, including `tdk upgrade`, the
+// stale - bricking every single `flisk` command, including `flisk upgrade`, the
 // one command meant to repair a stale install. Load lazily instead, on first
 // actual use, so commands that don't need templates (upgrade, doctor,
 // version, ...) keep working even when the templates folder is absent, and
-// `tdk upgrade` can run to fix it.
+// `flisk upgrade` can run to fix it.
 let embeddedTemplatesCache: Record<string, string> | null = null;
 function getEmbeddedTemplates(): Record<string, string> {
   if (!embeddedTemplatesCache) {
@@ -275,7 +284,7 @@ export class TemplateEngine {
 // spec.master.hbs emits one Starlark dict entry per enabledStacks[] item, so a
 // duplicate name in project.json (e.g. from the interactive wizard offering
 // the same service as both a core feature and a discovered stack) becomes a
-// duplicate dict key, which fails Starlark parsing at `tdk up`. Dedupe here
+// duplicate dict key, which fails Starlark parsing at `flisk up`. Dedupe here
 // so a bad project.json can't break generation.
 function dedupePhaseEnabledStacks(phases: ProjectConfig["phases"]): ProjectConfig["phases"] {
   const deduped = { ...phases };
@@ -293,12 +302,12 @@ function toComposeProjectName(projectName: string): string {
 }
 
 export function generateDatabaseManagementCompose(projectConfig: ProjectConfig): string {
-  const name = toComposeProjectName(projectConfig.project.name || "tdk_project");
+  const name = toComposeProjectName(projectConfig.project.name || "flisk_project");
   return `###############################################################################
 # SYSTEM-GENERATED - DO NOT EDIT
 # Stack feature: database-management
-# Source: .tdk/project.json phases.*.enabledStacks includes "database-management"
-# Regenerate with: tdk config regenerate
+# Source: .flisk/project.json phases.*.enabledStacks includes "database-management"
+# Regenerate with: flisk config regenerate
 ###############################################################################
 
 services:
@@ -311,7 +320,7 @@ services:
       POSTGRES_PASSWORD: \${DB_PASSWORD}
       POSTGRES_DB: postgres
     ports:
-      - "\${TDK_BIND_ADDRESS:-127.0.0.1}:\${TDK_POSTGRES_PORT:-15432}:5432"
+      - "\${FLISK_BIND_ADDRESS:-127.0.0.1}:\${FLISK_POSTGRES_PORT:-15432}:5432"
     volumes:
       - ${name}_postgres_data:/var/lib/postgresql/data
     networks:
@@ -438,20 +447,42 @@ function normalizeProjectConfig(value: unknown): ProjectConfig | null {
   };
 }
 
-/** The project has no .tdk/project.json yet, as opposed to one that exists but is unreadable or invalid. */
+/** The project has no .flisk/project.json yet, as opposed to one that exists but is unreadable or invalid. */
 export class ProjectConfigNotFoundError extends Error {}
 
+/**
+ * Reads, parses, and normalizes `.flisk/project.json` from the given project root.
+ *
+ * The file is read directly instead of being existence-checked first: `fs.existsSync` swallows
+ * filesystem errors and reports an inaccessible config as missing, which hides the real reason.
+ * Only a missing file (`ENOENT`) means "not found"; every other read failure keeps its reason.
+ *
+ * @param projectRoot - Root directory of the Flisk project.
+ * @returns The validated and normalized {@link ProjectConfig}.
+ */
 export function readProjectConfig(projectRoot: string): ProjectConfig {
-  const projectJsonPath = path.join(projectRoot, ".tdk", PROJECT_JSON);
+  const projectJsonPath = path.join(projectRoot, ".flisk", PROJECT_JSON);
 
-  if (!fs.existsSync(projectJsonPath)) {
-    throw new ProjectConfigNotFoundError(
-      `Project config not found: ${projectJsonPath}. Run 'tdk project --yes' first.`,
-    );
+  let jsonContent: string;
+  try {
+    jsonContent = fs.readFileSync(projectJsonPath, "utf-8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException | undefined)?.code === "ENOENT") {
+      throw new ProjectConfigNotFoundError(
+        `Project config not found: ${projectJsonPath}. Run 'flisk project --yes' first.`,
+      );
+    }
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new Error(`Could not read project.json at ${projectJsonPath}: ${reason}`);
   }
 
-  const jsonContent = fs.readFileSync(projectJsonPath, "utf-8");
-  const parsed: unknown = JSON.parse(jsonContent);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(jsonContent);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new Error(`Could not parse project.json at ${projectJsonPath}: ${reason}`);
+  }
 
   const projectConfig = normalizeProjectConfig(parsed);
   if (!projectConfig) {
@@ -471,8 +502,8 @@ export function readProjectConfig(projectRoot: string): ProjectConfig {
 // Premium, but unlike Verdaccio below, this is NOT the enforcement - it's a
 // friendly heads-up. The real gate is that engine/.../sablier_container_cycle.star
 // in this (public) repo is a free-tier stub that always returns disabled; the
-// working implementation only exists in the private tdk-cli-extensions/premium/
-// bundle, applied by vendorTdkExtension()'s applyPremiumOverlay() below when a
+// working implementation only exists in the private flisk-cli-extensions/premium/
+// bundle, applied by vendorFliskExtension()'s applyPremiumOverlay() below when a
 // license grants it. Forking this repo and deleting a license check (as you
 // could with Verdaccio/DDD) gets you nothing here, because there's no check to
 // delete - the actual code simply isn't present without the overlay. This just
@@ -490,13 +521,13 @@ async function warnIfSablierUnlicensed(projectRoot: string): Promise<void> {
   console.warn(
     `⚠️  Sablier (on-demand scaling) is a Premium feature - no valid license key found. ` +
       `${resources.length} resource${resources.length === 1 ? " has" : "s have"} a \`sablier\` block, ` +
-      "but it will have no effect without a license. Set TDK_LICENSE_KEY to a key that grants it, " +
+      "but it will have no effect without a license. Set FLISK_LICENSE_KEY to a key that grants it, " +
       "or remove the `sablier` block from the affected service.json file(s) to silence this warning.",
   );
 }
 
 function ensureRootWorkspaceManifest(projectRoot: string, projectConfig: ProjectConfig): boolean {
-  const packageJsonPath = assertTdkGeneratedPath(projectRoot, PACKAGE_JSON);
+  const packageJsonPath = assertFliskGeneratedPath(projectRoot, PACKAGE_JSON);
   if (fs.existsSync(packageJsonPath)) {
     return false;
   }
@@ -515,12 +546,12 @@ function ensureRootWorkspaceManifest(projectRoot: string, projectConfig: Project
 
 export interface GenerateMasterConfigsOptions {
   /**
-   * Overwrite a root .tiltignore that carries TDK's generated header but was edited by hand.
-   * Set by `tdk config regenerate`, the explicit "discard hand edits" command. A root
+   * Overwrite a root .tiltignore that carries Flisk's generated header but was edited by hand.
+   * Set by `flisk config regenerate`, the explicit "discard hand edits" command. A root
    * .tiltignore without the header belongs to the team and is never overwritten.
    */
   discardHandEdits?: boolean;
-  /** Suppress progress lines on stdout, for callers that print machine output (`tdk up --json`). */
+  /** Suppress progress lines on stdout, for callers that print machine output (`flisk up --json`). */
   quiet?: boolean;
 }
 
@@ -554,8 +585,8 @@ export async function generateMasterConfigs(
   // enforcement - it's a friendly heads-up. The real gate is that
   // engine/topologies/platform/registries/verdaccio_loader.star in this
   // (public) repo is a free-tier stub that always skips; the working loader
-  // only exists in the private tdk-cli-extensions/premium/ bundle, applied
-  // by vendorTdkExtension()'s applyPremiumOverlay() below when a license
+  // only exists in the private flisk-cli-extensions/premium/ bundle, applied
+  // by vendorFliskExtension()'s applyPremiumOverlay() below when a license
   // grants it. Forking this repo and deleting a license check gets you
   // nothing, because there's no check left to delete - the actual code
   // simply isn't present without the overlay. This just tells a confused
@@ -569,13 +600,13 @@ export async function generateMasterConfigs(
     if (!granted) {
       console.warn(
         "⚠️  Verdaccio is a Premium feature - no valid license key found. It's enabled in " +
-          "this project's config, but will have no effect without a license. Set TDK_LICENSE_KEY " +
-          "to a key that grants it, or run `tdk config disable-infra verdaccio` to silence this warning.",
+          "this project's config, but will have no effect without a license. Set FLISK_LICENSE_KEY " +
+          "to a key that grants it, or run `flisk config disable-infra verdaccio` to silence this warning.",
       );
     }
   }
 
-  const outputDir = path.join(projectRoot, ".tdk", ".tdk-out");
+  const outputDir = path.join(projectRoot, ".flisk", ".flisk-out");
   if (!fs.existsSync(outputDir)) {
     fs.mkdirSync(outputDir, { recursive: true });
   }
@@ -585,13 +616,16 @@ export async function generateMasterConfigs(
 
   for (const filename of ALL_GENERATED_FILES) {
     const content = files[filename];
-    const filePath = assertTdkGeneratedPath(projectRoot, path.join(".tdk", ".tdk-out", filename));
+    const filePath = assertFliskGeneratedPath(
+      projectRoot,
+      path.join(".flisk", ".flisk-out", filename),
+    );
     writeTextFileAtomic(filePath, content);
-    if (!options.quiet) console.log(`✓ Generated: .tdk/.tdk-out/${filename}`);
+    if (!options.quiet) console.log(`✓ Generated: .flisk/.flisk-out/${filename}`);
   }
 
   if (isStackFeatureEnabledInStacks(projectConfig.phases, DATABASE_MANAGEMENT_FEATURE)) {
-    const composePath = assertTdkGeneratedPath(
+    const composePath = assertFliskGeneratedPath(
       projectRoot,
       path.join("services", "platform", DATABASE_MANAGEMENT_FEATURE, DOCKER_COMPOSE_FILE),
     );
@@ -605,43 +639,49 @@ export async function generateMasterConfigs(
 
   // Copy .tiltignore to project root so Tilt uses it
   const tiltignoreSource = path.join(outputDir, TILTIGNORE_FILE);
-  const tiltignoreTarget = assertTdkGeneratedPath(projectRoot, TILTIGNORE_FILE);
+  const tiltignoreTarget = assertFliskGeneratedPath(projectRoot, TILTIGNORE_FILE);
   if (fs.existsSync(tiltignoreSource)) {
     if (!fs.existsSync(tiltignoreTarget)) {
       fs.copyFileSync(tiltignoreSource, tiltignoreTarget);
-      console.log(`✓ Copied: .tiltignore → project root`);
+      if (!options.quiet) console.log(`✓ Copied: .tiltignore → project root`);
     } else if (options.discardHandEdits) {
-      // Only a file TDK wrote (it carries the header) may be restored; one without the
+      // Only a file Flisk wrote (it carries the header) may be restored; one without the
       // header is the team's own and `verifyMasterConfigs` reports it as a warning.
       const current = fs.readFileSync(tiltignoreTarget, "utf-8");
       if (
-        current.includes(TDK_GENERATED_MARKER) &&
+        current.includes(FLISK_GENERATED_MARKER) &&
         current !== fs.readFileSync(tiltignoreSource, "utf-8")
       ) {
         fs.copyFileSync(tiltignoreSource, tiltignoreTarget);
-        console.log("✓ Restored: .tiltignore → project root (hand edits discarded)");
+        if (!options.quiet) {
+          console.log("✓ Restored: .tiltignore → project root (hand edits discarded)");
+        }
       }
     }
   }
 
   const copiedAssets = ensureProjectRuntimeAssets(projectRoot);
-  for (const asset of copiedAssets) {
-    console.log(`✓ Copied: ${asset} → project root`);
+  if (!options.quiet) {
+    for (const asset of copiedAssets) {
+      console.log(`✓ Copied: ${asset} → project root`);
+    }
   }
 
-  await vendorTdkExtension(projectRoot);
+  await vendorFliskExtension(projectRoot, { quiet: options.quiet });
 
-  console.log("");
-  console.log("💡 To start Tilt: tdk up");
+  if (!options.quiet) {
+    console.log("");
+    console.log("💡 To start Tilt: flisk up");
+  }
 }
 
-// The generated Tiltfile loads the TDK Tilt extension (engine, discovery,
+// The generated Tiltfile loads the Flisk Tilt extension (engine, discovery,
 // specs, ext starlark modules). The extension repo may stay private, so we
-// vendor a working copy into .tdk/.tdk-out/tdk-cli-ext/ at generation time.
-// This makes `tdk up` work offline and on any machine - no hardcoded paths,
+// vendor a working copy into .flisk/.flisk-out/flisk-cli-ext/ at generation time.
+// This makes `flisk up` work offline and on any machine - no hardcoded paths,
 // no dependency on a private GitHub repo.
 // The engine's own unit tests (for example wake-gateway/decide.test.ts, which imports bun:test) are
-// not needed to run a stack. Vendoring them under .tdk/.tdk-out makes a Node project's test runner
+// not needed to run a stack. Vendoring them under .flisk/.flisk-out makes a Node project's test runner
 // (Vitest, Jest) discover them and fail, so they are left out of the vendored copy.
 const TEST_FILE_PATTERN = /\.(?:test|spec)\.[cm]?[jt]sx?$/;
 
@@ -661,7 +701,7 @@ function removeVendoredTestFiles(dir: string): void {
   }
 }
 
-const TDK_EXTENSION_DIRS = ["engine", "discovery", "specs", "ext"] as string[];
+const FLISK_EXTENSION_DIRS: readonly string[] = EXTENSION_DIRS;
 const PROJECT_RUNTIME_ASSET_DIRS = [["shared-platform-engineering", "docker-templates"]] as const;
 const REQUIRED_DOCKER_TEMPLATE_FILES = [
   "install-deps.sh",
@@ -672,12 +712,12 @@ const REQUIRED_DOCKER_TEMPLATE_FILES = [
 
 // Walk up from this module's own location looking for a directory that has
 // both Tiltfile and engine/ next to it - true when cli/ and engine/ ship
-// together in the same repo (the public tdk-cli-core layout, where a plain
+// together in the same repo (the public flisk layout, where a plain
 // `git clone` + `bun run` needs zero extra config to find the engine).
 function findSelfContainedEngineRoot(): string | null {
   let dir = import.meta.dirname || process.cwd();
   for (let i = 0; i < 6; i++) {
-    if (fs.existsSync(path.join(dir, "Tiltfile")) && fs.existsSync(path.join(dir, "engine"))) {
+    if (hasExtensionLayout(dir)) {
       return dir;
     }
     const parent = path.dirname(dir);
@@ -687,10 +727,14 @@ function findSelfContainedEngineRoot(): string | null {
   return null;
 }
 
+function hasDockerTemplates(sourceRoot: string): boolean {
+  return fs.existsSync(path.join(resolveSharedPlatformDir(sourceRoot), "docker-templates"));
+}
+
 export function findCliAssetRoot(): string | null {
   let dir = import.meta.dirname || process.cwd();
   for (let i = 0; i < 8; i++) {
-    if (fs.existsSync(path.join(dir, "shared-platform-engineering", "docker-templates"))) {
+    if (hasDockerTemplates(dir)) {
       return dir;
     }
     const parent = path.dirname(dir);
@@ -700,15 +744,11 @@ export function findCliAssetRoot(): string | null {
 
   const exeDir = path.dirname(process.execPath);
   const candidates = [
-    path.join(exeDir, "tdk-cli"),
-    path.join(process.cwd(), "node_modules", "@tdk-landscape", "tdk-cli-core"),
+    path.join(exeDir, "flisk-cli"),
+    path.join(process.cwd(), "node_modules", "@flisk-sh", "flisk"),
   ];
 
-  return (
-    candidates.find((candidate) =>
-      fs.existsSync(path.join(candidate, "shared-platform-engineering", "docker-templates")),
-    ) ?? null
-  );
+  return candidates.find(hasDockerTemplates) ?? null;
 }
 
 export function ensureProjectRuntimeAssets(projectRoot: string): string[] {
@@ -717,15 +757,15 @@ export function ensureProjectRuntimeAssets(projectRoot: string): string[] {
 
   if (!sourceRoot) {
     console.warn(
-      "⚠️  TDK runtime assets not found - generated Dockerfiles may fail. " +
-        "Reinstall or upgrade TDK, then re-run `tdk project`.",
+      "⚠️  Flisk runtime assets not found - generated Dockerfiles may fail. " +
+        "Reinstall or upgrade Flisk, then re-run `flisk project`.",
     );
     return copied;
   }
 
   for (const parts of PROJECT_RUNTIME_ASSET_DIRS) {
-    const source = path.join(sourceRoot, ...parts);
-    const target = assertTdkGeneratedPath(projectRoot, path.join(...parts));
+    const source = path.join(resolveSharedPlatformDir(sourceRoot), ...parts.slice(1));
+    const target = assertFliskGeneratedPath(projectRoot, path.join(...parts));
     if (!fs.existsSync(source)) {
       continue;
     }
@@ -750,20 +790,23 @@ export function ensureProjectRuntimeAssets(projectRoot: string): string[] {
   return copied;
 }
 
-async function vendorTdkExtension(projectRoot: string): Promise<void> {
-  const vendoredDir = assertTdkGeneratedPath(
+async function vendorFliskExtension(
+  projectRoot: string,
+  options: { quiet?: boolean } = {},
+): Promise<void> {
+  const vendoredDir = assertFliskGeneratedPath(
     projectRoot,
-    path.join(".tdk", ".tdk-out", "tdk-cli-ext"),
+    path.join(".flisk", ".flisk-out", "flisk-cli-ext"),
   );
 
   // Source resolution order:
-  //   1. $TDK_EXTENSION_SOURCE (explicit override)
-  //   2. Self-contained repo (engine/ ships next to cli/ - public tdk-cli-core)
+  //   1. $FLISK_EXTENSION_SOURCE (explicit override)
+  //   2. Self-contained repo (engine/ ships next to cli/ - public flisk)
   //   3. Executable-adjacent checkout (bundled installs)
-  //   4. Relative ../tdk-cli sibling (monorepo maintainer layout)
+  //   4. Relative ../flisk-cli sibling (monorepo maintainer layout)
   const sources: string[] = [];
-  if (process.env.TDK_EXTENSION_SOURCE) {
-    sources.push(process.env.TDK_EXTENSION_SOURCE);
+  if (process.env.FLISK_EXTENSION_SOURCE) {
+    sources.push(process.env.FLISK_EXTENSION_SOURCE);
   }
   const selfContainedRoot = findSelfContainedEngineRoot();
   if (selfContainedRoot) {
@@ -777,25 +820,38 @@ async function vendorTdkExtension(projectRoot: string): Promise<void> {
   // Bun's process object - it was always undefined, silently falling
   // back to cwd() instead of the binary's real location.
   const exeDir = path.dirname(process.execPath);
-  sources.push(path.join(exeDir, "tdk-cli"));
-  sources.push(path.join(projectRoot, "..", "tdk-cli"));
+  sources.push(path.join(exeDir, "flisk-cli"));
+  sources.push(path.join(projectRoot, "..", "flisk-cli"));
+
+  // An explicit override that fails the layout check is skipped below; say why instead of silently falling
+  // back to a different copy of the extension.
+  const override = process.env.FLISK_EXTENSION_SOURCE;
+  if (override && fs.existsSync(override) && !hasExtensionLayout(override)) {
+    console.warn(
+      `⚠️  FLISK_EXTENSION_SOURCE is not a usable Flisk extension and is ignored:\n   ${describeLayoutProblems(override)}`,
+    );
+  }
 
   let sourceRoot = "";
   for (const candidate of sources) {
-    if (
-      candidate &&
-      fs.existsSync(path.join(candidate, "Tiltfile")) &&
-      fs.existsSync(path.join(candidate, "engine"))
-    ) {
+    if (candidate && hasExtensionLayout(candidate)) {
       sourceRoot = candidate;
       break;
     }
   }
 
   if (!sourceRoot) {
+    // A candidate that has some extension entries but fails the layout check is a stale or half-migrated tree.
+    const broken = sources
+      .filter((candidate) => candidate && fs.existsSync(candidate))
+      .map((candidate) => ({ candidate, report: inspectExtensionLayout(candidate) }))
+      .filter(({ report }) => report.kind === "mixed" || report.missing.length < 5);
     console.warn(
-      "⚠️  TDK extension not found - set TDK_EXTENSION_SOURCE to its checkout path " +
-        "and re-run `tdk project` (or `tdk config regenerate`) to vendor it before `tdk up`.",
+      "⚠️  Flisk extension not found - set FLISK_EXTENSION_SOURCE to its checkout path " +
+        "and re-run `flisk project` (or `flisk config regenerate`) to vendor it before `flisk up`." +
+        broken
+          .map(({ candidate, report }) => `\n   ${describeLayoutProblems(candidate, report)}`)
+          .join(""),
     );
     return;
   }
@@ -803,18 +859,18 @@ async function vendorTdkExtension(projectRoot: string): Promise<void> {
   if (!fs.existsSync(vendoredDir)) {
     fs.mkdirSync(vendoredDir, { recursive: true });
   }
-  fs.copyFileSync(path.join(sourceRoot, "Tiltfile"), path.join(vendoredDir, "Tiltfile"));
-  for (const dir of TDK_EXTENSION_DIRS) {
-    // A project vendored by an older TDK already holds test files; cpSync only adds, so drop them.
+  fs.copyFileSync(resolveTiltfile(sourceRoot), path.join(vendoredDir, "Tiltfile"));
+  for (const dir of FLISK_EXTENSION_DIRS) {
+    // A project vendored by an older Flisk already holds test files; cpSync only adds, so drop them.
     removeVendoredTestFiles(path.join(vendoredDir, dir));
-    fs.cpSync(path.join(sourceRoot, dir), path.join(vendoredDir, dir), {
+    fs.cpSync(resolveExtensionDir(sourceRoot, dir), path.join(vendoredDir, dir), {
       recursive: true,
       filter: (source) => !isTestFile(source),
     });
   }
-  console.log(`✓ Vendored TDK extension → .tdk/.tdk-out/tdk-cli-ext/`);
+  if (!options.quiet) console.log(`✓ Vendored Flisk extension → .flisk/.flisk-out/flisk-cli-ext/`);
 
-  // Best-effort: if TDK_LICENSE_KEY is set and grants any paid resource,
+  // Best-effort: if FLISK_LICENSE_KEY is set and grants any paid resource,
   // overlay the premium bundle over the stub files just vendored above.
   // No-ops silently (beyond a warning) if there's no key, the fetch
   // fails, or nothing's granted - the free engine already works fine on
@@ -827,14 +883,17 @@ async function vendorTdkExtension(projectRoot: string): Promise<void> {
   }
 }
 
-const TDK_GENERATED_MARKER = "SYSTEM-GENERATED BY TDK CLI";
+const FLISK_GENERATED_MARKER = "SYSTEM-GENERATED BY Flisk CLI";
 
-export function verifyMasterConfigs(projectRoot: string): {
+export function verifyMasterConfigs(
+  projectRoot: string,
+  options?: { manifestPaths?: string[]; skipManifestValidation?: boolean },
+): {
   valid: boolean;
   errors: string[];
   warnings: string[];
   diffs: Array<{ file: string; diff: string }>;
-  /** Generated service files (project-relative) whose content differs from their TDK snapshot, i.e. edited by hand. */
+  /** Generated service files (project-relative) whose content differs from their Flisk snapshot, i.e. edited by hand. */
   handEdited: string[];
 } {
   const errors: string[] = [];
@@ -845,7 +904,7 @@ export function verifyMasterConfigs(projectRoot: string): {
   const addDrift = (displayPath: string, actual: string | undefined, expected: string) => {
     if (actual === expected) return;
     errors.push(
-      `${actual === undefined ? "Missing file" : "Out of sync"}: ${displayPath} (run 'tdk config regenerate')`,
+      `${actual === undefined ? "Missing file" : "Out of sync"}: ${displayPath} (run 'flisk config regenerate')`,
     );
     diffs.push({
       file: displayPath,
@@ -857,36 +916,39 @@ export function verifyMasterConfigs(projectRoot: string): {
   const engine = new TemplateEngine();
   const expectedFiles = engine.generateAll(projectConfig);
 
-  const outputDir = path.join(projectRoot, ".tdk", ".tdk-out");
+  const outputDir = path.join(projectRoot, ".flisk", ".flisk-out");
 
   for (const filename of ALL_GENERATED_FILES) {
     const expectedContent = expectedFiles[filename];
     const filePath = path.join(outputDir, filename);
 
     addDrift(
-      `.tdk/.tdk-out/${filename}`,
+      `.flisk/.flisk-out/${filename}`,
       fs.existsSync(filePath) ? fs.readFileSync(filePath, "utf-8") : undefined,
       expectedContent,
     );
   }
 
-  // `tdk project` never overwrites a root .tiltignore the repo already has, so one
-  // without TDK's header belongs to the team: it is not drift.
+  // `flisk project` never overwrites a root .tiltignore the repo already has, so one
+  // without Flisk's header belongs to the team: it is not drift.
   const rootTiltIgnore = path.join(projectRoot, TILTIGNORE_FILE);
   const rootTiltIgnoreText = fs.existsSync(rootTiltIgnore)
     ? fs.readFileSync(rootTiltIgnore, "utf-8")
     : undefined;
-  if (rootTiltIgnoreText !== undefined && !rootTiltIgnoreText.includes(TDK_GENERATED_MARKER)) {
-    warnings.push(".tiltignore: not generated by TDK, left as is");
+  if (rootTiltIgnoreText !== undefined && !rootTiltIgnoreText.includes(FLISK_GENERATED_MARKER)) {
+    warnings.push(".tiltignore: not generated by Flisk, left as is");
   } else {
     addDrift(TILTIGNORE_FILE, rootTiltIgnoreText, expectedFiles[TILTIGNORE_FILE]);
   }
 
-  for (const manifestPath of discoverServiceManifestPaths(projectRoot)) {
+  const manifestPaths = options?.manifestPaths ?? discoverServiceManifestPaths(projectRoot);
+  for (const manifestPath of manifestPaths) {
     const displayPath = path.relative(projectRoot, manifestPath).split(path.sep).join("/");
-    const validation = validateServiceManifestFile(manifestPath, displayPath);
-    errors.push(...validation.errors);
-    warnings.push(...validation.warnings);
+    if (!options?.skipManifestValidation) {
+      const validation = validateServiceManifestFile(manifestPath, displayPath);
+      errors.push(...validation.errors);
+      warnings.push(...validation.warnings);
+    }
     const generated = verifyGeneratedResourceFiles(projectRoot, manifestPath);
     errors.push(...generated.errors);
     handEdited.push(...generated.handEdited);
@@ -919,7 +981,7 @@ function verifyGeneratedResourceFiles(
   const generatedFiles: Array<{ fullPath: string; relativeFile: string }> = [];
   const collect = (directory: string, relativeDir = ""): void => {
     for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
-      if (relativeDir === "" && entry.name === ".tdk-contract") continue;
+      if (relativeDir === "" && entry.name === ".flisk-contract") continue;
       const relativeFile = path.join(relativeDir, entry.name);
       const fullPath = path.join(directory, entry.name);
       if (entry.isDirectory()) collect(fullPath, relativeFile);
@@ -929,40 +991,40 @@ function verifyGeneratedResourceFiles(
   collect(generatedDir);
   if (generatedFiles.length === 0) return { errors: [], handEdited: [] };
 
-  const contractDir = path.join(generatedDir, ".tdk-contract");
+  const contractDir = path.join(generatedDir, ".flisk-contract");
   const sourceSnapshot = path.join(contractDir, "service.json.source");
   const errors: string[] = [];
   const handEdited: string[] = [];
   if (!fs.existsSync(sourceSnapshot)) {
     errors.push(
       path.relative(projectRoot, sourceSnapshot) +
-        ": generated-file contract snapshot is missing (run tdk up to regenerate)",
+        ": generated-file contract snapshot is missing (run flisk up to regenerate)",
     );
   } else if (
     fs.readFileSync(sourceSnapshot, "utf-8") !== fs.readFileSync(serviceJsonPath, "utf-8")
   ) {
     errors.push(
       path.relative(projectRoot, serviceJsonPath) +
-        ": service.json changed since generated outputs were written (run tdk up)",
+        ": service.json changed since generated outputs were written (run flisk up)",
     );
   }
 
   for (const generated of generatedFiles) {
     // service.yaml is a runtime discovery shadow generated by the Tilt
-    // extension. It is not produced by `tdk config regenerate`, and its
-    // timestamp/UID content has no committed TDK snapshot to verify.
+    // extension. It is not produced by `flisk config regenerate`, and its
+    // timestamp/UID content has no committed Flisk snapshot to verify.
     if (generated.relativeFile === "service.yaml") continue;
     const snapshotPath = path.join(contractDir, generated.relativeFile);
     const display = path.relative(projectRoot, generated.fullPath);
     if (!fs.existsSync(snapshotPath)) {
-      errors.push(`${display}: generated-file snapshot is missing (run tdk up to regenerate)`);
+      errors.push(`${display}: generated-file snapshot is missing (run flisk up to regenerate)`);
     } else if (
       fs.readFileSync(generated.fullPath, "utf-8") !== fs.readFileSync(snapshotPath, "utf-8")
     ) {
       // Windows path.relative uses backslashes; report project-relative paths with forward slashes everywhere.
       handEdited.push(display.split(path.sep).join("/"));
       errors.push(
-        `${display}: generated file differs from its TDK snapshot (run tdk up to regenerate)`,
+        `${display}: generated file differs from its Flisk snapshot (run flisk up to regenerate)`,
       );
     }
   }

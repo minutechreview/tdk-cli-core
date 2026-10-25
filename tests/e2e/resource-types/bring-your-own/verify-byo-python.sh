@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Copyright (c) 2026 TDK Landscape contributors
+# Copyright (c) 2026 Flisk Landscape contributors
 # SPDX-License-Identifier: MIT
 set -euo pipefail
 
@@ -7,9 +7,9 @@ readonly REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
 readonly FIXTURE_DIR="${REPO_ROOT}/tests/e2e/fixtures/byo-python-health"
 readonly SCHEMA="${REPO_ROOT}/engine/schemas/service-schema.json"
 readonly WORK_BASE="${RUNNER_TEMP:-${TMPDIR:-/tmp}}"
-readonly PROJECT_DIR="$(mktemp -d "${WORK_BASE%/}/tdk-byo-python.XXXXXX")"
+readonly PROJECT_DIR="$(mktemp -d "${WORK_BASE%/}/flisk-byo-python.XXXXXX")"
 readonly RESOURCE_DIR="${PROJECT_DIR}/services/shop/legacy"
-readonly CLI="${TDK_BIN:-tdk}"
+readonly CLI="${FLISK_BIN:-flisk}"
 
 cleanup() {
   rm -rf "${PROJECT_DIR}"
@@ -17,7 +17,7 @@ cleanup() {
 trap cleanup EXIT
 
 if ! command -v "${CLI}" >/dev/null 2>&1; then
-  echo "tdk CLI not found: ${CLI}" >&2
+  echo "flisk CLI not found: ${CLI}" >&2
   exit 1
 fi
 if ! command -v ajv >/dev/null 2>&1; then
@@ -26,10 +26,10 @@ if ! command -v ajv >/dev/null 2>&1; then
 fi
 
 # project --yes runs machine preflight (including Tilt); this contract test
-# deliberately needs no Docker or Tilt, so start from a minimal existing TDK
+# deliberately needs no Docker or Tilt, so start from a minimal existing Flisk
 # project manifest and exercise the production resource and up CLI commands.
-mkdir -p "${PROJECT_DIR}/.tdk" "${RESOURCE_DIR}"
-cat > "${PROJECT_DIR}/.tdk/project.json" <<'JSON'
+mkdir -p "${PROJECT_DIR}/.flisk" "${RESOURCE_DIR}"
+cat > "${PROJECT_DIR}/.flisk/project.json" <<'JSON'
 {
   "version": "1.0.0",
   "project": { "name": "byo-python-e2e", "version": "1.0.0" },

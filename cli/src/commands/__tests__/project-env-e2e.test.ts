@@ -1,10 +1,10 @@
-// Copyright (c) 2026 TDK Landscape contributors
+// Copyright (c) 2026 Flisk Landscape contributors
 // SPDX-License-Identifier: MIT
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { copyProject, runTdk, runTdkAllowFailure } from "./project-e2e-helpers.js";
+import { copyProject, runFlisk, runFliskAllowFailure } from "./project-e2e-helpers.js";
 
 describe("project .env and secrets E2E", () => {
   // One generated project per file. Each test copies it, so only the scaffold runs once.
@@ -12,8 +12,8 @@ describe("project .env and secrets E2E", () => {
   let projectRoot = "";
 
   beforeAll(() => {
-    baseRoot = mkdtempSync(join(tmpdir(), "tdk-project-env-base-"));
-    runTdk(["project", "--yes"], baseRoot);
+    baseRoot = mkdtempSync(join(tmpdir(), "flisk-project-env-base-"));
+    runFlisk(["project", "--yes"], baseRoot);
   }, 120_000);
 
   afterAll(() => {
@@ -28,14 +28,14 @@ describe("project .env and secrets E2E", () => {
     }
   });
 
-  it("recreates a missing .env when `tdk project` runs in an already-initialised repo", () => {
+  it("recreates a missing .env when `flisk project` runs in an already-initialised repo", () => {
     projectRoot = copyProject(baseRoot);
     const envPath = join(projectRoot, ".env");
     expect(existsSync(envPath)).toBe(true);
 
-    // A fresh clone has .tdk/project.json (committed) but no .env (gitignored).
+    // A fresh clone has .flisk/project.json (committed) but no .env (gitignored).
     rmSync(envPath);
-    runTdk(["project", "--yes"], projectRoot);
+    runFlisk(["project", "--yes"], projectRoot);
 
     const env = readFileSync(envPath, "utf-8");
     expect(env).toMatch(/^TILT_ENV=dev$/m);
@@ -45,10 +45,10 @@ describe("project .env and secrets E2E", () => {
   it("generates a per-project JWT secret and a DATABASE_URL that uses the generated password", () => {
     projectRoot = copyProject(baseRoot);
     // A separate scaffold, not a copy: the test proves two generated projects never share a secret.
-    const otherRoot = mkdtempSync(join(tmpdir(), "tdk-project-env-secrets-other-"));
+    const otherRoot = mkdtempSync(join(tmpdir(), "flisk-project-env-secrets-other-"));
 
     try {
-      runTdk(["project", "--yes"], otherRoot);
+      runFlisk(["project", "--yes"], otherRoot);
 
       const env = readFileSync(join(projectRoot, ".env"), "utf-8");
       const other = readFileSync(join(otherRoot, ".env"), "utf-8");
@@ -66,7 +66,7 @@ describe("project .env and secrets E2E", () => {
     }
   }, 30000);
 
-  it("completes an older .env on `tdk project` without rotating any existing value", () => {
+  it("completes an older .env on `flisk project` without rotating any existing value", () => {
     projectRoot = copyProject(baseRoot);
 
     // What a previous CLI wrote: no JWT_SECRET, and Verdaccio required.
@@ -76,7 +76,7 @@ describe("project .env and secrets E2E", () => {
       "VERDACCIO_URL_DOCKER=http://verdaccio:4873\nTILT_ENV=dev\nDB_PASSWORD=0123456789abcdef0123456789abcdef\nSTRIPE_KEY=sk_test_keep_me\n",
     );
 
-    runTdk(["project", "--yes"], projectRoot);
+    runFlisk(["project", "--yes"], projectRoot);
 
     const env = readFileSync(envPath, "utf-8");
     expect(env).toMatch(/^JWT_SECRET=[0-9a-f]{64}$/m);
@@ -85,18 +85,18 @@ describe("project .env and secrets E2E", () => {
     expect(env.match(/^JWT_SECRET=/gm)).toHaveLength(1);
 
     // A second run changes nothing: the secret it added is not rotated.
-    runTdk(["project", "--yes"], projectRoot);
+    runFlisk(["project", "--yes"], projectRoot);
     expect(readFileSync(envPath, "utf-8")).toBe(env);
   }, 30000);
 
-  it("reports a DATABASE_URL password that differs from DB_PASSWORD in `tdk doctor`", () => {
+  it("reports a DATABASE_URL password that differs from DB_PASSWORD in `flisk doctor`", () => {
     projectRoot = copyProject(baseRoot);
     writeFileSync(
       join(projectRoot, ".env"),
       "TILT_ENV=dev\nDB_PASSWORD=0123456789abcdef0123456789abcdef\nDATABASE_URL=postgresql://postgres:postgres@postgres:5432/app_dev\n",
     );
 
-    expect(runTdkAllowFailure(["doctor"], projectRoot)).toMatch(
+    expect(runFliskAllowFailure(["doctor"], projectRoot)).toMatch(
       /warning: DATABASE_URL carries a different password than DB_PASSWORD/,
     );
   }, 60000);

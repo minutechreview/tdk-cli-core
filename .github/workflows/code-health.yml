@@ -1,9 +1,10 @@
 # Report-only code health: unused code (Knip) and React/Ink hygiene (React Doctor). Results land in the job
 # summary; neither tool fails the build, so existing findings do not block PRs.
-name: 🩺 Code health
+name: 🩺 CI | Code health
 
 on:
-  pull_request:
+  schedule:
+    - cron: "0 9 * * 1" # weekly report; pull requests no longer run it
   workflow_dispatch:
 
 permissions:

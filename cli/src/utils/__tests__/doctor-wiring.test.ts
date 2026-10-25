@@ -1,4 +1,4 @@
-// Copyright (c) 2026 TDK Landscape contributors
+// Copyright (c) 2026 Flisk Landscape contributors
 // SPDX-License-Identifier: MIT
 import type { execSync } from "node:child_process";
 import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -42,10 +42,10 @@ function resource(
 }
 
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), "tdk-doctor-wiring-"));
-  mkdirSync(join(root, ".tdk"), { recursive: true });
+  root = mkdtempSync(join(tmpdir(), "flisk-doctor-wiring-"));
+  mkdirSync(join(root, ".flisk"), { recursive: true });
   writeFileSync(
-    join(root, ".tdk", "project.json"),
+    join(root, ".flisk", "project.json"),
     JSON.stringify({ project: { name: "reports-demo" } }),
   );
 });
@@ -249,7 +249,7 @@ describe("checkSharedPlatformPostgres", () => {
       },
     } as ProjectConfig;
     const generated = new TemplateEngine(join(repoRoot, "cli", "templates")).generateAll(config);
-    const output = join(root, ".tdk", ".tdk-out");
+    const output = join(root, ".flisk", ".flisk-out");
     mkdirSync(output, { recursive: true });
     writeFileSync(join(output, "Tiltfile"), generated.Tiltfile);
     writeFileSync(join(output, "spec.master"), generated["spec.master"]);
@@ -257,14 +257,14 @@ describe("checkSharedPlatformPostgres", () => {
       "discovery/config.star",
       "engine/topologies/tilt/config/profiles.star",
     ]) {
-      const destination = join(output, "tdk-cli-ext", relativePath);
+      const destination = join(output, "flisk-cli-ext", relativePath);
       mkdirSync(join(destination, ".."), { recursive: true });
-      copyFileSync(join(repoRoot, relativePath), destination);
+      copyFileSync(join(repoRoot, "runtime", relativePath), destination);
     }
   }
 
   function writeProjectJson(config: Record<string, unknown>): void {
-    writeFileSync(join(root, ".tdk", "project.json"), JSON.stringify(config));
+    writeFileSync(join(root, ".flisk", "project.json"), JSON.stringify(config));
   }
 
   function featureOffProjectJson(): Record<string, unknown> {
@@ -345,7 +345,7 @@ describe("checkSharedPlatformPostgres", () => {
     const result = checkSharedPlatformPostgres(root);
     expect(result.isWarning).toBe(true);
     expect(result.isSkipped).toBeFalsy();
-    expect(result.message).toContain("default tdk up takes the feature path");
+    expect(result.message).toContain("default flisk up takes the feature path");
   });
 
   it("warns about the feature path even when a project dependency suggests the force path", () => {
@@ -358,14 +358,14 @@ describe("checkSharedPlatformPostgres", () => {
     const result = checkSharedPlatformPostgres(root);
     expect(result.isWarning).toBe(true);
     expect(result.message).toContain("depend on postgres/database-management");
-    expect(result.message).toContain("default tdk up takes the feature path");
+    expect(result.message).toContain("default flisk up takes the feature path");
   });
 
   it("does not claim default focus enables the feature before generation or with empty focus", () => {
     resource("app", "api", { appType: "backend", port: 4000 });
-    expect(checkSharedPlatformPostgres(root).message).not.toContain("default tdk up");
+    expect(checkSharedPlatformPostgres(root).message).not.toContain("default flisk up");
     writeGeneratedFocus([]);
-    expect(checkSharedPlatformPostgres(root).message).not.toContain("default tdk up");
+    expect(checkSharedPlatformPostgres(root).message).not.toContain("default flisk up");
   });
 
   it("fails on unknown typo dependsOn names and still reports will-start", () => {
@@ -395,7 +395,7 @@ describe("checkSharedPlatformPostgres", () => {
     const result = checkSharedPlatformPostgres(root);
     expect(result.didPass).toBe(true);
     expect(result.message).toContain("project resource set");
-    expect(result.message).toContain("tdk up may select a subset");
+    expect(result.message).toContain("flisk up may select a subset");
   });
 
   it("does not report postgres as a missing service when the dependency is present", () => {
@@ -556,6 +556,64 @@ describe("checkPrismaConsistency", () => {
     expect(checkPrismaConsistency(root).didPass).toBe(false);
   });
 
+  it("rejects a prisma API with no Postgres dependency (dependsOn empty)", () => {
+    validProject({ dependsOn: [] });
+    const result = checkPrismaConsistency(root);
+    expect(result.didPass).toBe(false);
+    expect(result.message).toContain("API must depend on its Prisma migrator");
+    expect(result.message).toContain("postgres or database-management");
+  });
+
+  it("rejects a prisma API whose dependsOn names postgres but no migrator", () => {
+    validProject({ dependsOn: ["postgres"] });
+    const result = checkPrismaConsistency(root);
+    expect(result.didPass).toBe(false);
+    expect(result.message).toContain("API must depend on its Prisma migrator");
+  });
+
+  it("rejects a migrator that does not start Postgres", () => {
+    validProject();
+    writeFileSync(
+      join(root, "services/app/orders-api-migrator/service.json"),
+      JSON.stringify({
+        appName: "orders-api-migrator",
+        appType: "migrator",
+        port: 7000,
+        featuresEnabled: ["prisma"],
+        dependsOn: [],
+      }),
+    );
+    const result = checkPrismaConsistency(root);
+    expect(result.didPass).toBe(false);
+    expect(result.message).toContain("migrator must depend on postgres or database-management");
+  });
+
+  it("accepts database-management as the Postgres dependency of the migrator", () => {
+    validProject();
+    writeFileSync(
+      join(root, "services/app/orders-api-migrator/service.json"),
+      JSON.stringify({
+        appName: "orders-api-migrator",
+        appType: "migrator",
+        port: 7000,
+        featuresEnabled: ["prisma"],
+        dependsOn: ["database-management"],
+      }),
+    );
+    expect(checkPrismaConsistency(root).didPass).toBe(true);
+  });
+
+  it("rejects Prisma 6.19.3 next to a Prisma 7 client", () => {
+    validProject();
+    writeFileSync(
+      join(root, "services/app/orders-api/package.json"),
+      JSON.stringify({ dependencies: { prisma: "6.19.3", "@prisma/client": "^7.5.0" } }),
+    );
+    const result = checkPrismaConsistency(root);
+    expect(result.didPass).toBe(false);
+    expect(result.message).toContain("prisma packages must both be major 7");
+  });
+
   it("fails when schema.prisma is missing", () => {
     validProject();
     rmSync(join(root, "services/app/orders-api/prisma/schema.prisma"));
@@ -649,7 +707,7 @@ describe("checkPrismaConsistency", () => {
 
 describe("checkTiltInstances", () => {
   const tiltLine = (pid: number, project: string) =>
-    `${pid} tilt up -f ${project}/.tdk/.tdk-out/Tiltfile -- --focus=store`;
+    `${pid} tilt up -f ${project}/.flisk/.flisk-out/Tiltfile -- --focus=store`;
   const fakeExec = (output: string) => (() => output) as unknown as typeof execSync;
 
   it("parses pid and project root from ps output", () => {
@@ -684,8 +742,8 @@ describe("checkDockerNetworkCapacity", async () => {
       return "";
     }) as unknown as ExecAsync;
     expect((await checkDockerNetworkCapacity(exec)).didPass).toBe(true);
-    expect(calls[0]).toMatch(/^docker network create tdk_doctor_probe_/);
-    expect(calls[1]).toMatch(/^docker network rm tdk_doctor_probe_/);
+    expect(calls[0]).toMatch(/^docker network create flisk_doctor_probe_/);
+    expect(calls[1]).toMatch(/^docker network rm flisk_doctor_probe_/);
   });
 
   it("fails when Docker has no address pool left", async () => {

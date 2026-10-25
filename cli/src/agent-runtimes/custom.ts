@@ -1,11 +1,11 @@
-// Copyright (c) 2026 TDK Landscape contributors
+// Copyright (c) 2026 Flisk Landscape contributors
 // SPDX-License-Identifier: MIT
 import type { BackendFrameworkProvider } from "../backend-frameworks/types.js";
 
 /**
  * The `custom` agent runtime: a plain Bun HTTP service with no model SDK, no agent framework and no vendor dependency.
  * It is the escape hatch the agent resource type is built on. Replace the `runTurn` body with your model call and tools;
- * the process contract around it (health, readiness, session checkpoints, SIGTERM drain) is what TDK relies on.
+ * the process contract around it (health, readiness, session checkpoints, SIGTERM drain) is what Flisk relies on.
  */
 export function getCustomAgentIndexTemplate(
   name: string,
@@ -15,9 +15,9 @@ export function getCustomAgentIndexTemplate(
     return `import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { Client } from 'pg';
 
-// Contract with TDK (see docs/agents/ai-agents.md):
+// Contract with Flisk (see docs/agents/ai-agents.md):
 //   AGENT_DURABILITY  postgres
-//   DATABASE_URL      Postgres connection string injected by TDK
+//   DATABASE_URL      Postgres connection string injected by Flisk
 //   PORT              port to listen on
 // /health: the process is alive. /ready: the checkpoint store is reachable. Idle is healthy, so /health never checks the store.
 
@@ -40,7 +40,7 @@ async function getClient(): Promise<Client> {
   await c.connect();
   if (!initialized) {
     await c.query(\`
-      CREATE TABLE IF NOT EXISTS tdk_agent_sessions (
+      CREATE TABLE IF NOT EXISTS flisk_agent_sessions (
         session_id VARCHAR(128) PRIMARY KEY,
         messages JSONB NOT NULL DEFAULT '[]'::jsonb,
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -66,7 +66,7 @@ const store = {
   async load(sessionId: string): Promise<Checkpoint> {
     try {
       const c = await getClient();
-      const res = await c.query('SELECT messages FROM tdk_agent_sessions WHERE session_id = $1', [sessionId]);
+      const res = await c.query('SELECT messages FROM flisk_agent_sessions WHERE session_id = $1', [sessionId]);
       if (res.rows.length > 0 && res.rows[0].messages) {
         return { sessionId, messages: res.rows[0].messages };
       }
@@ -79,7 +79,7 @@ const store = {
   async save(checkpoint: Checkpoint): Promise<void> {
     const c = await getClient();
     await c.query(
-      \`INSERT INTO tdk_agent_sessions (session_id, messages, updated_at)
+      \`INSERT INTO flisk_agent_sessions (session_id, messages, updated_at)
        VALUES ($1, $2, NOW())
        ON CONFLICT (session_id) DO UPDATE
        SET messages = EXCLUDED.messages, updated_at = NOW()\`,
@@ -90,7 +90,9 @@ const store = {
     if (client) {
       try {
         await client.end();
-      } catch {}
+      } catch (err) {
+        console.warn('[agent] closing the checkpoint client failed:', err);
+      }
       client = null;
     }
   },
@@ -171,7 +173,7 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log('\\n🤖 ${name} agent on http://localhost:' + PORT + ' (durability: ' + DURABILITY + ')');
 });
 
-// Drain on SIGTERM (tdk down, hot reload, docker stop): stop taking turns, let in-flight turns finish, then exit 0.
+// Drain on SIGTERM (flisk down, hot reload, docker stop): stop taking turns, let in-flight turns finish, then exit 0.
 // Checkpoints are written before a turn is answered, so a drained exit loses no acknowledged turn.
 function shutdown(signal: string) {
   if (draining) return;
@@ -198,9 +200,9 @@ process.on('SIGINT', () => shutdown('SIGINT'));
 import { mkdirSync, readFileSync, renameSync, writeFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 
-// Contract with TDK (see docs/agents/ai-agents.md):
-//   AGENT_DURABILITY  files   (set by tdk from service.json agent.durability)
-//   AGENT_STATE_DIR   where files-durability checkpoints live (a named volume that survives tdk down)
+// Contract with Flisk (see docs/agents/ai-agents.md):
+//   AGENT_DURABILITY  files   (set by flisk from service.json agent.durability)
+//   AGENT_STATE_DIR   where files-durability checkpoints live (a named volume that survives flisk down)
 //   PORT              port to listen on
 // /health: the process is alive. /ready: the checkpoint store is reachable. Idle is healthy, so /health never checks the store.
 
@@ -313,7 +315,7 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log('\\n🤖 ${name} agent on http://localhost:' + PORT + ' (durability: ' + DURABILITY + ')');
 });
 
-// Drain on SIGTERM (tdk down, hot reload, docker stop): stop taking turns, let in-flight turns finish, then exit 0.
+// Drain on SIGTERM (flisk down, hot reload, docker stop): stop taking turns, let in-flight turns finish, then exit 0.
 // Checkpoints are written before a turn is answered, so a drained exit loses no acknowledged turn.
 function shutdown(signal: string) {
   if (draining) return;

@@ -1,4 +1,4 @@
-# TDK Networks Command Design
+# Flisk Networks Command Design
 
 ## Overview
 Display Traefik-routed URLs for all services in a clean, modern CLI format.
@@ -12,7 +12,7 @@ Display Traefik-routed URLs for all services in a clean, modern CLI format.
 - Status indicators (emoji) for quick scanning
 
 ### 2. Layout
-```
+```text
 ┌─────────────────────────────────────────────────────────┐
 │  🌐  TRAEFIK NETWORKS                                    │
 │  Domain: {project}.localhost                             │

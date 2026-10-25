@@ -1,4 +1,4 @@
-// Copyright (c) 2026 TDK Landscape contributors
+// Copyright (c) 2026 Flisk Landscape contributors
 // SPDX-License-Identifier: MIT
 
 import { readFileSync } from "node:fs";
@@ -8,7 +8,7 @@ import { DATABASE_MANAGEMENT_FEATURE, PROJECT_JSON } from "./constants.js";
 import { POSTGRES_DEPENDENCY_NAMES } from "./shared-platform-postgres.js";
 
 /**
- * Groups the shared platform Postgres for `tdk status`.
+ * Groups the shared platform Postgres for `flisk status`.
  *
  * One Postgres instance serves the whole project. Each stack that uses it gets its own database named
  * `<project>_<stack>` (see #584), and the services in that stack use that database. `groupSharedPostgres` is pure: it
@@ -31,7 +31,7 @@ export interface SharedPostgresInstance {
 export function usesSharedPostgres(resource: DiscoveredResource): boolean {
   const config = resource.config;
   if (!config) return false;
-  // service.json is not type-checked here, so a malformed value must not throw inside `tdk status`.
+  // service.json is not type-checked here, so a malformed value must not throw inside `flisk status`.
   if (
     Array.isArray(config.featuresEnabled) &&
     config.featuresEnabled.includes(DATABASE_MANAGEMENT_FEATURE)
@@ -62,10 +62,10 @@ export function groupSharedPostgres(
   return { name: "postgres", databases };
 }
 
-/** `project.name` from `.tdk/project.json`, or null when the project file is missing or unreadable. */
+/** `project.name` from `.flisk/project.json`, or null when the project file is missing or unreadable. */
 export function readProjectName(projectRoot: string): string | null {
   try {
-    const parsed = JSON.parse(readFileSync(join(projectRoot, ".tdk", PROJECT_JSON), "utf-8"));
+    const parsed = JSON.parse(readFileSync(join(projectRoot, ".flisk", PROJECT_JSON), "utf-8"));
     return typeof parsed?.project?.name === "string" ? parsed.project.name : null;
   } catch {
     return null;

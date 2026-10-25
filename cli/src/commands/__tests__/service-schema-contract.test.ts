@@ -1,4 +1,4 @@
-// Copyright (c) 2026 TDK Landscape contributors
+// Copyright (c) 2026 Flisk Landscape contributors
 // SPDX-License-Identifier: MIT
 import { readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -19,7 +19,7 @@ import { createByoServiceJson, createServiceJson } from "../resource.js";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..");
 const schema = JSON.parse(
-  readFileSync(join(repoRoot, "engine", "schemas", "service-schema.json"), "utf-8"),
+  readFileSync(join(repoRoot, "runtime", "engine", "schemas", "service-schema.json"), "utf-8"),
 );
 const publishWorkflow = readFileSync(
   join(repoRoot, ".github", "workflows", "publish-service-schema.yml"),
@@ -244,7 +244,7 @@ describe("publishing the schema from main", () => {
 
   it("reports whether the live copy matches main, so a missing token is not a silent success", () => {
     expect(publishWorkflow).toContain("Report whether the published schema matches main");
-    expect(publishWorkflow).toContain("https://tdk-landscape.github.io/schema.service.json");
+    expect(publishWorkflow).toContain("https://flisk.sh/schema.service.json");
     expect(publishWorkflow).toContain("GITHUB_STEP_SUMMARY");
   });
 });

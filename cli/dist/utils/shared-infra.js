@@ -1,4 +1,4 @@
-// Copyright (c) 2026 TDK Landscape contributors
+// Copyright (c) 2026 Flisk Landscape contributors
 // SPDX-License-Identifier: MIT
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -9,7 +9,7 @@ export function usesSharedPostgres(resource) {
     const config = resource.config;
     if (!config)
         return false;
-    // service.json is not type-checked here, so a malformed value must not throw inside `tdk status`.
+    // service.json is not type-checked here, so a malformed value must not throw inside `flisk status`.
     if (Array.isArray(config.featuresEnabled) &&
         config.featuresEnabled.includes(DATABASE_MANAGEMENT_FEATURE))
         return true;
@@ -33,10 +33,10 @@ export function groupSharedPostgres(projectName, stacks) {
         return null;
     return { name: "postgres", databases };
 }
-/** `project.name` from `.tdk/project.json`, or null when the project file is missing or unreadable. */
+/** `project.name` from `.flisk/project.json`, or null when the project file is missing or unreadable. */
 export function readProjectName(projectRoot) {
     try {
-        const parsed = JSON.parse(readFileSync(join(projectRoot, ".tdk", PROJECT_JSON), "utf-8"));
+        const parsed = JSON.parse(readFileSync(join(projectRoot, ".flisk", PROJECT_JSON), "utf-8"));
         return typeof parsed?.project?.name === "string" ? parsed.project.name : null;
     }
     catch {

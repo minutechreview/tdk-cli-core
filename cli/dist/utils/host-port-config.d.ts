@@ -5,13 +5,13 @@ export declare function writeSavedHostPortPlan(projectRoot: string, plan: HostPo
 export declare function exportHostPortPlan(plan: HostPortPlan): void;
 /**
  * True when a container whose Compose working directory is inside this project publishes the port. A container-name prefix is not
- * enough: tdk_shop_ also matches the containers of a different project called tdk-shop-extra. Compose records the directory each
+ * enough: flisk_shop_ also matches the containers of a different project called flisk-shop-extra. Compose records the directory each
  * project was started from, so that identifies the project exactly. Containers without the label never count.
  */
 export declare function isPortHeldByProjectContainers(dockerPs: string, projectRoot: string, port: number): boolean;
 /**
  * The HTTP ingress port to probe while a stack is running. getHostPortPlan moves a saved fallback port (8080) back to the
- * preferred one (80) as soon as that is free, which is right for the next `tdk up` but wrong for a running stack: Traefik is still
+ * preferred one (80) as soon as that is free, which is right for the next `flisk up` but wrong for a running stack: Traefik is still
  * bound to the saved port, so probing the planned one finds nothing and every runtime check is skipped. When this project's own
  * containers hold the saved port, probe that one.
  */

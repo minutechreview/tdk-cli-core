@@ -1,4 +1,4 @@
-// Copyright (c) 2026 TDK Landscape contributors
+// Copyright (c) 2026 Flisk Landscape contributors
 // SPDX-License-Identifier: MIT
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, normalize } from "node:path";
@@ -22,8 +22,8 @@ export function findPrivateStarlarkLoadExports(content) {
     return Array.from(privateExports).sort();
 }
 export function resolveStarlarkLoadTarget(file, modulePath, projectRoot) {
-    if (modulePath === "ext://tdk-cli") {
-        return join(projectRoot, ".tdk", ".tdk-out", "tdk-cli-ext", "Tiltfile");
+    if (modulePath === "ext://flisk-cli") {
+        return join(projectRoot, ".flisk", ".flisk-out", "flisk-cli-ext", "Tiltfile");
     }
     if (modulePath.startsWith(".") || (!modulePath.includes("://") && !modulePath.startsWith("@"))) {
         return normalize(join(dirname(file), modulePath));
@@ -86,7 +86,7 @@ export function collectReachableStarlarkFiles(entryFile, projectRoot) {
 }
 export function checkStarlarkLoadExports() {
     const projectRoot = findProjectRoot() ?? process.cwd();
-    const entryFile = join(projectRoot, ".tdk", ".tdk-out", "Tiltfile");
+    const entryFile = join(projectRoot, ".flisk", ".flisk-out", "Tiltfile");
     if (!existsSync(entryFile)) {
         return {
             name: "Starlark Load Exports",
@@ -127,6 +127,6 @@ export function checkStarlarkLoadExports() {
         name: "Starlark Load Exports",
         didPass: false,
         message: `Starlark load() issues will stop Tilt before services start:\n    ${sections.join("\n\n    ")}`,
-        fix: "Regenerate with a current TDK (`tdk config regenerate`). If the issue remains, rename loaded symbols without leading underscores and update stale load paths.",
+        fix: "Regenerate with a current Flisk (`flisk config regenerate`). If the issue remains, rename loaded symbols without leading underscores and update stale load paths.",
     };
 }

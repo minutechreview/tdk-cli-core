@@ -1,9 +1,19 @@
-// Copyright (c) 2026 TDK Landscape contributors
+// Copyright (c) 2026 Flisk Landscape contributors
 // SPDX-License-Identifier: MIT
 import { statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { Command } from "commander";
 import { findCliAssetRoot, loadTemplate } from "../generator/template-engine.js";
+import {
+  describeLayoutProblems,
+  EXTENSION_DIRS,
+  inspectExtensionLayout,
+  resolveExtensionDir,
+  resolveSharedPlatformDir,
+  resolveTiltfile,
+} from "../utils/runtime-layout.js";
+
+const SHARED_PLATFORM_TEMPLATES = "shared-platform-engineering/docker-templates";
 
 const REQUIRED_ASSET_PATHS = [
   { path: "Tiltfile", directory: false },
@@ -12,8 +22,10 @@ const REQUIRED_ASSET_PATHS = [
   { path: "specs", directory: true },
   { path: "ext", directory: true },
   { path: "cli/templates", directory: true },
-  { path: "shared-platform-engineering/docker-templates", directory: true },
+  { path: SHARED_PLATFORM_TEMPLATES, directory: true },
 ] as const;
+
+const EXTENSION_NAMES: ReadonlySet<string> = new Set(EXTENSION_DIRS);
 
 const REQUIRED_TEMPLATES = [
   ".tiltignore.hbs",
@@ -24,7 +36,7 @@ const REQUIRED_TEMPLATES = [
 ] as const;
 
 export const runtimeCommand = new Command("runtime")
-  .description("Inspect the packaged TDK runtime assets")
+  .description("Inspect the packaged Flisk runtime assets")
   .option("--check-assets", "Check bundled engine and template assets")
   .option("--json", "Print the check result as JSON")
   .action((options: { checkAssets?: boolean; json?: boolean }) => {
@@ -39,13 +51,24 @@ export const runtimeCommand = new Command("runtime")
     const missing = assetRoot
       ? REQUIRED_ASSET_PATHS.filter(({ path, directory }) => {
           try {
-            const stats = statSync(join(assetRoot, path));
+            const stats = statSync(
+              EXTENSION_NAMES.has(path)
+                ? resolveExtensionDir(assetRoot, path)
+                : path === "Tiltfile"
+                  ? resolveTiltfile(assetRoot)
+                  : path === SHARED_PLATFORM_TEMPLATES
+                    ? join(resolveSharedPlatformDir(assetRoot), "docker-templates")
+                    : join(assetRoot, path),
+            );
             return directory ? !stats.isDirectory() : !stats.isFile();
           } catch {
             return true;
           }
         }).map(({ path }) => path)
       : REQUIRED_ASSET_PATHS.map(({ path }) => path);
+    const layout = assetRoot ? inspectExtensionLayout(assetRoot) : null;
+    const layoutErrors =
+      assetRoot && layout?.kind === "mixed" ? [describeLayoutProblems(assetRoot, layout)] : [];
     const templateErrors: string[] = [];
 
     if (assetRoot && missing.length === 0) {
@@ -60,18 +83,23 @@ export const runtimeCommand = new Command("runtime")
       }
     }
 
-    const ok = Boolean(assetRoot) && missing.length === 0 && templateErrors.length === 0;
+    const ok =
+      Boolean(assetRoot) &&
+      missing.length === 0 &&
+      layoutErrors.length === 0 &&
+      templateErrors.length === 0;
     if (options.json) {
-      console.log(JSON.stringify({ ok, assetRoot, missing, templateErrors }));
+      console.log(JSON.stringify({ ok, assetRoot, missing, layoutErrors, templateErrors }));
     } else if (ok) {
-      console.log(`TDK runtime assets found at ${assetRoot}`);
+      console.log(`Flisk runtime assets found at ${assetRoot}`);
     } else {
       console.error(
         [
           assetRoot
-            ? `Incomplete TDK runtime assets at ${assetRoot}`
-            : "TDK runtime assets not found",
+            ? `Incomplete Flisk runtime assets at ${assetRoot}`
+            : "Flisk runtime assets not found",
           ...missing.map((path) => `Missing: ${path}`),
+          ...layoutErrors,
           ...templateErrors,
         ].join("\n"),
       );

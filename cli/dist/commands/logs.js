@@ -1,8 +1,8 @@
-// Copyright (c) 2026 TDK Landscape contributors
+// Copyright (c) 2026 Flisk Landscape contributors
 // SPDX-License-Identifier: MIT
 import { Command } from "commander";
 import { STANDARD_PORTS } from "../utils/constants.js";
-import { errorFactories, runCommand, showErrorAndExit, TdkError } from "../utils/errors.js";
+import { errorFactories, FliskError, runCommand, showErrorAndExit } from "../utils/errors.js";
 import { createMachineEnvelope } from "../utils/machine-output.js";
 import { findProjectRoot } from "../utils/paths.js";
 import { EnvUnreadableError, envSecretValues, redactSecrets, redactValue, } from "../utils/secret-redaction.js";
@@ -49,7 +49,7 @@ export const logsCommand = new Command("logs")
             process.exit(exitCode);
         }
         if (redactedSuggestions.length > 0) {
-            return new TdkError(message, redactedSuggestions, exitCode).exit();
+            return new FliskError(message, redactedSuggestions, exitCode).exit();
         }
         return showErrorAndExit(message, exitCode);
     };
@@ -81,7 +81,7 @@ export const logsCommand = new Command("logs")
             ]);
         }
         if (!(await isTiltAvailable())) {
-            fail("TILT_MISSING", "Tilt is not installed. Run: tdk doctor");
+            fail("TILT_MISSING", "Tilt is not installed. Run: flisk doctor");
         }
         if (services.length > 0) {
             const known = await tiltResourceNames(portText);

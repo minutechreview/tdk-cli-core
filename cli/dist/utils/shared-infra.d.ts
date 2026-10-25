@@ -1,6 +1,6 @@
 import type { DiscoveredResource, DiscoveredStack } from "../types/index.js";
 /**
- * Groups the shared platform Postgres for `tdk status`.
+ * Groups the shared platform Postgres for `flisk status`.
  *
  * One Postgres instance serves the whole project. Each stack that uses it gets its own database named
  * `<project>_<stack>` (see #584), and the services in that stack use that database. `groupSharedPostgres` is pure: it
@@ -19,5 +19,5 @@ export interface SharedPostgresInstance {
 /** A resource uses the shared database when its features or dependsOn ask for it. */
 export declare function usesSharedPostgres(resource: DiscoveredResource): boolean;
 export declare function groupSharedPostgres(projectName: string, stacks: DiscoveredStack[]): SharedPostgresInstance | null;
-/** `project.name` from `.tdk/project.json`, or null when the project file is missing or unreadable. */
+/** `project.name` from `.flisk/project.json`, or null when the project file is missing or unreadable. */
 export declare function readProjectName(projectRoot: string): string | null;

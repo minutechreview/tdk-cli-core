@@ -1,4 +1,4 @@
-// Copyright (c) 2026 TDK Landscape contributors
+// Copyright (c) 2026 Flisk Landscape contributors
 // SPDX-License-Identifier: MIT
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -13,11 +13,13 @@ import { tiltGetUiResources } from "../../utils/up-readiness.js";
 import { projectCommand } from "../project.js";
 import { statusCommand } from "../status.js";
 
-// `tdk project` refuses to start without Docker, Tilt and Bun on the machine,
-// and `tdk status` asks Tilt whether it is installed. Neither is needed to
+// `flisk project` refuses to start without Docker, Tilt and Bun on the machine,
+// and `flisk status` asks Tilt whether it is installed. Neither is needed to
 // check what status prints, so both are mocked.
 vi.mock("../../utils/cold-preflight.js", () => ({
   assertMachineReadyOrExit: vi.fn(async () => {}),
+  detectRuntimePrerequisites: vi.fn(() => ({ hasDockerCli: true, hasTiltCli: true })),
+  formatRuntimeNextSteps: vi.fn(() => []),
 }));
 vi.mock("../../utils/tilt.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../utils/tilt.js")>()),
@@ -60,15 +62,15 @@ async function runStatus(args: string[] = []): Promise<string> {
   return stripVTControlCharacters(lines.join("\n"));
 }
 
-describe("tdk status", () => {
+describe("flisk status", () => {
   const originalCwd = process.cwd();
-  const originalExtensionSource = process.env.TDK_EXTENSION_SOURCE;
+  const originalExtensionSource = process.env.FLISK_EXTENSION_SOURCE;
   let projectRoot = "";
 
   beforeAll(async () => {
-    projectRoot = mkdtempSync(join(tmpdir(), "tdk-status-"));
+    projectRoot = mkdtempSync(join(tmpdir(), "flisk-status-"));
     process.chdir(projectRoot);
-    process.env.TDK_EXTENSION_SOURCE = repoRoot;
+    process.env.FLISK_EXTENSION_SOURCE = repoRoot;
 
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -88,9 +90,9 @@ describe("tdk status", () => {
   afterAll(() => {
     process.chdir(originalCwd);
     if (originalExtensionSource === undefined) {
-      delete process.env.TDK_EXTENSION_SOURCE;
+      delete process.env.FLISK_EXTENSION_SOURCE;
     } else {
-      process.env.TDK_EXTENSION_SOURCE = originalExtensionSource;
+      process.env.FLISK_EXTENSION_SOURCE = originalExtensionSource;
     }
     if (projectRoot.startsWith(tmpdir())) {
       rmSync(projectRoot, { recursive: true, force: true });
@@ -133,7 +135,7 @@ describe("tdk status", () => {
   it("prints Tilt availability, resource and stack counts, and next steps by default", async () => {
     const output = await runStatus();
 
-    expect(output).toContain("TDK Status");
+    expect(output).toContain("Flisk Status");
     expect(output).toContain("Tilt: available");
     expect(output).not.toContain("Install Tilt");
     expect(output).toContain("Resources: 4 discovered");
@@ -142,9 +144,9 @@ describe("tdk status", () => {
     expect(output).toMatch(/^ {2}shop: 2 resources$/m);
     expect(output.indexOf("billing:")).toBeLessThan(output.indexOf("shop:"));
     expect(output).toContain("1 resource not in any stack:");
-    expect(output).toContain('Run "tdk stacks" to see all stacks.');
-    expect(output).not.toContain("tdk list-stacks");
-    expect(output).toContain('Run "tdk up <stack-name>" to start a stack.');
+    expect(output).toContain('Run "flisk stacks" to see all stacks.');
+    expect(output).not.toContain("flisk list-stacks");
+    expect(output).toContain('Run "flisk up <stack-name>" to start a stack.');
 
     // Resource names are only listed with --verbose.
     for (const { appName } of FIXTURE_SERVICES) {
@@ -188,10 +190,10 @@ describe("tdk status", () => {
   });
 
   it("reports an empty project without stack lines", async () => {
-    const emptyRoot = mkdtempSync(join(tmpdir(), "tdk-status-empty-"));
+    const emptyRoot = mkdtempSync(join(tmpdir(), "flisk-status-empty-"));
     try {
-      mkdirSync(join(emptyRoot, ".tdk"));
-      writeFileSync(join(emptyRoot, ".tdk", "project.json"), "{}");
+      mkdirSync(join(emptyRoot, ".flisk"));
+      writeFileSync(join(emptyRoot, ".flisk", "project.json"), "{}");
       process.chdir(emptyRoot);
 
       const output = await runStatus(["--verbose"]);
@@ -318,7 +320,7 @@ describe("tdk status", () => {
   });
 
   it("fails on the missing project before printing any status line", async () => {
-    const outside = mkdtempSync(join(tmpdir(), "tdk-status-outside-"));
+    const outside = mkdtempSync(join(tmpdir(), "flisk-status-outside-"));
     process.chdir(outside);
     clearDiscoveryCache();
     const lines: string[] = [];
@@ -341,7 +343,7 @@ describe("tdk status", () => {
     }
 
     const stdout = stripVTControlCharacters(lines.join("\n"));
-    expect(stdout).not.toContain("TDK Status");
+    expect(stdout).not.toContain("Flisk Status");
     expect(stdout).not.toContain("Tilt:");
     expect(stripVTControlCharacters(errors.join("\n"))).toContain("Could not find project root");
   });

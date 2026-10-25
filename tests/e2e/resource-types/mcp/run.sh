@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# Copyright (c) 2026 TDK Landscape contributors
+# Copyright (c) 2026 Flisk Landscape contributors
 # SPDX-License-Identifier: MIT
 # An mcp resource on a live stack, moved from scripts/verify-mcp.sh (#1296, openspec task 3.2). Scaffold it, bring it up through a
-# real `tdk up` and Traefik, and talk to it with the official MCP TypeScript SDK client (not just curl): connect, list the tools,
+# real `flisk up` and Traefik, and talk to it with the official MCP TypeScript SDK client (not just curl): connect, list the tools,
 # call the `echo` tool. The client uses the real host name api.<project>.localhost, so this also shows that a client resolves it.
 # Runs nightly, on release and by hand; see suite.json.
 #
 #   tests/e2e/resource-types/mcp/run.sh all            every case in order, then cleanup
 #   tests/e2e/resource-types/mcp/run.sh P1 P2 P3       single cases
-# Needs: tdk on PATH, Docker, Tilt, Node 22+, jq, curl, and network access (P3 installs the MCP SDK into a temp directory).
+# Needs: flisk on PATH, Docker, Tilt, Node 22+, jq, curl, and network access (P3 installs the MCP SDK into a temp directory).
 set -euo pipefail
 
 SUITE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -20,9 +20,7 @@ e2e_init mcp mcpe2e
 STACK=app
 RES=mcpres
 RESOURCES=("$RES")
-# The published SDK at an exact version. verify-mcp.sh installed a pinned git commit, but that checkout has no built dist folder
-# when installed this way, so the client's imports did not resolve (first live run, #1296).
-MCP_SDK="@modelcontextprotocol/sdk@1.32.1"
+# The SDK and its full dependency tree are pinned in package-lock.json.
 
 mcp_healthy() { [ "$(traefik_request "$RES" /health -o /dev/null -w '%{http_code}')" = "200" ]; }
 
@@ -31,8 +29,8 @@ P1() { # scaffold the mcp resource
   common_scaffold mcp "$RES" --stack "$STACK" --yes
 }
 
-P2() { # tdk up, listed as an mcp resource, healthy through Traefik
-  log "P2 tdk up, $RES listed as mcp, healthy through Traefik"
+P2() { # flisk up, listed as an mcp resource, healthy through Traefik
+  log "P2 flisk up, $RES listed as mcp, healthy through Traefik"
   : >"$DIR/up.log"
   start_stack "$STACK"
   wait_status_url "$RES"
@@ -45,8 +43,9 @@ P3() { # the MCP SDK client connects, lists the tools and calls echo
   local url clientdir out
   url="$(resource_url "$RES")/mcp"
   clientdir="$(mktemp -d)"
-  (cd "$clientdir" && npm init -y >/dev/null 2>&1 && npm install --no-audit --no-fund "$MCP_SDK") \
-    || die "could not install the MCP SDK $MCP_SDK"
+  cp "$SUITE_DIR/package.json" "$SUITE_DIR/package-lock.json" "$clientdir/"
+  (cd "$clientdir" && npm ci --no-audit --no-fund) \
+    || die "could not install the locked MCP SDK dependencies"
   cp "$SUITE_DIR/client.mjs" "$clientdir/client.mjs"
   out="$(cd "$clientdir" && node client.mjs "$url" 2>&1)" || { echo "$out" >&2; rm -rf "$clientdir"; die "the MCP SDK client could not use $url"; }
   rm -rf "$clientdir"

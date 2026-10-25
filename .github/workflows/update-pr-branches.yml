@@ -1,13 +1,11 @@
 # Keep clean PR branches based on main without checking out or executing PR code.
 # The pull_request_target job only calls GitHub's update-branch API. A conflict
 # or missing fork permission is reported for human follow-up.
-name: 🔀 Keep PR branches current
+name: ⬆️ Automation | Keep PR branches current
 
 on:
   push:
     branches: [main]
-  pull_request_target: # zizmor: ignore[dangerous-triggers] uses only GitHub API metadata; never checks out or runs PR code
-    types: [opened, reopened, synchronize, ready_for_review]
 
 permissions: {}
 
@@ -18,7 +16,7 @@ concurrency:
 jobs:
   update:
     name: Update stale branches based on main
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     permissions:
       pull-requests: write
@@ -76,9 +74,11 @@ jobs:
             exit 0
           fi
 
+          # A push to main used to update every open PR, and each update started that PR's full CI.
+          # Until the merge queue is active, only approved PRs or PRs with auto-merge enabled are updated.
           gh pr list --repo "$GITHUB_REPOSITORY" --state open --base main \
-            --limit 1000 --json number,mergeStateStatus \
-            --jq '.[] | select(.mergeStateStatus == "BEHIND" or .mergeStateStatus == "UNKNOWN") | .number' |
+            --limit 1000 --json number,mergeStateStatus,reviewDecision,autoMergeRequest \
+            --jq '.[] | select(.mergeStateStatus == "BEHIND" or .mergeStateStatus == "UNKNOWN") | select(.reviewDecision == "APPROVED" or .autoMergeRequest != null) | .number' |
           while IFS= read -r number; do
             [[ -z "$number" ]] || update_if_behind "$number"
           done

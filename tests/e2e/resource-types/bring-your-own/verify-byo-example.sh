@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Copyright (c) 2026 TDK Landscape contributors
+# Copyright (c) 2026 Flisk Landscape contributors
 # SPDX-License-Identifier: MIT
 # Build one examples/byo/<name> image, run it with PORT=4000 and check it answers
 # HTTP 200 on its health path. Publishing the port through Docker's proxy only
@@ -13,7 +13,7 @@ set -euo pipefail
 name="${1:?usage: verify-byo-example.sh <name> [health-path]}"
 health="${2:-/health}"
 dir="$(cd "$(dirname "$0")/../../../.." && pwd)/examples/byo/$name"
-image="tdk-byo-verify-$name"
+image="flisk-byo-verify-$name"
 container="$image-$$"
 
 [ -d "$dir" ] || { echo "no such example: $dir" >&2; exit 2; }

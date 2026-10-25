@@ -1,13 +1,22 @@
-// Copyright (c) 2026 TDK Landscape contributors
+// Copyright (c) 2026 Flisk Landscape contributors
 // SPDX-License-Identifier: MIT
 import { execSync, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   BASE_TEMPLATE,
+  createByoServiceJson,
   createPackageJson,
   createResourceTsconfig,
   createServiceJson,
@@ -20,6 +29,7 @@ import {
   getWorkerIndexTemplate,
   PRISMA_CONFIG_TEMPLATE,
   PRISMA_SCHEMA_TEMPLATE,
+  parseExistingServiceJson,
   parseResourceType,
   TSCONFIG_TEMPLATE,
   TYPE_SPECIFIC,
@@ -30,7 +40,7 @@ import {
   resolveFrontendFramework,
 } from "../../frontend-frameworks/registry.js";
 import { CREATABLE_RESOURCE_TYPES, isCreatableResourceType } from "../../types/index.js";
-import { TdkError } from "../../utils/errors.js";
+import { FliskError } from "../../utils/errors.js";
 import { discoverResourcesFromRoot } from "../../utils/services.js";
 import { KEBAB_CASE_REGEX } from "../../utils/validation.js";
 
@@ -78,7 +88,7 @@ describe("resource command", () => {
       expect(serviceJson).toHaveProperty("dependsOn");
       expect(serviceJson).toHaveProperty("build");
       expect(serviceJson).toHaveProperty("dev");
-      expect(serviceJson.$schema).toBe("https://tdk-landscape.github.io/schema.service.json");
+      expect(serviceJson.$schema).toBe("https://flisk.sh/schema.service.json");
     });
 
     it("adds the Prisma feature to the service manifest when requested", () => {
@@ -125,6 +135,46 @@ describe("resource command", () => {
       expect(serviceJson.dev.command).toBe("bun run worker");
     });
 
+    it("creates agent service.json with durability and custom runtime", () => {
+      const serviceJson = createServiceJson(
+        "research-agent",
+        "agent",
+        "ai",
+        4200,
+        [],
+        undefined,
+        undefined,
+        { runtime: "custom", durability: "postgres" },
+      );
+      expect(serviceJson.appName).toBe("research-agent");
+      expect(serviceJson.appType).toBe("agent");
+      expect(serviceJson.agent).toEqual({ runtime: "custom", durability: "postgres" });
+      expect(serviceJson.healthCheckPath).toBe("/health");
+      expect(serviceJson.port).toBe(4200);
+    });
+
+    it("creates mcp service.json without backend framework pollution", () => {
+      const serviceJson = createServiceJson("tools-server", "mcp", "ai", 4300);
+      expect(serviceJson.appName).toBe("tools-server");
+      expect(serviceJson.appType).toBe("mcp");
+      expect(serviceJson).not.toHaveProperty("framework");
+      expect(serviceJson.healthCheckPath).toBe("/health");
+    });
+
+    it("omits Prisma feature when non-Bun backend language is selected", () => {
+      const serviceJson = createServiceJson(
+        "py-api",
+        "backend",
+        "main",
+        4100,
+        [],
+        undefined,
+        "python",
+      );
+      expect(serviceJson.language).toBe("python");
+      expect(serviceJson.featuresEnabled).not.toContain("prisma");
+    });
+
     it("should have correct TYPE_SPECIFIC extensions for each resource type", () => {
       expect(TYPE_SPECIFIC.backend).toHaveProperty("healthCheckPath", "/health");
       expect(TYPE_SPECIFIC.frontend.dev?.watch).toContain("public/**/*");
@@ -137,6 +187,48 @@ describe("resource command", () => {
       expect(BASE_TEMPLATE).toHaveProperty("build");
       expect(BASE_TEMPLATE).toHaveProperty("dev");
       expect(BASE_TEMPLATE.build).toHaveProperty("dockerfile", "Dockerfile");
+    });
+  });
+
+  describe("createByoServiceJson", () => {
+    it("creates standard BYO service manifest with Dockerfile and default settings", () => {
+      const manifest = createByoServiceJson("cache-service", "infra", 4500, {
+        healthCheckPath: "/health",
+        dockerfile: "Dockerfile.custom",
+      });
+      expect(manifest.appName).toBe("cache-service");
+      expect(manifest.appType).toBe("bring-your-own");
+      expect(manifest.stack).toBe("infra");
+      expect(manifest.port).toBe(4500);
+      expect(manifest.healthCheckPath).toBe("/health");
+      expect((manifest as Record<string, unknown>).dockerfile).toBe("Dockerfile.custom");
+      expect(manifest).not.toHaveProperty("image");
+      expect(manifest).not.toHaveProperty("exposeViaProxy");
+      expect(manifest).not.toHaveProperty("restart");
+      expect(manifest.$schema).toMatch(/schema\.service\.json$/);
+    });
+
+    it("creates BYO service manifest with image instead of dockerfile", () => {
+      const manifest = createByoServiceJson("redis-db", "data", 4501, {
+        healthCheckPath: "/ready",
+        dockerfile: "",
+        image: "redis:7-alpine",
+      });
+      expect(manifest.appName).toBe("redis-db");
+      expect((manifest as Record<string, unknown>).image).toBe("redis:7-alpine");
+      expect(manifest).not.toHaveProperty("dockerfile");
+      expect(manifest.healthCheckPath).toBe("/ready");
+    });
+
+    it("creates BYO service manifest with exposeViaProxy false and custom restart policy", () => {
+      const manifest = createByoServiceJson("nats-mq", "infra", 4502, {
+        healthCheckPath: "/healthz",
+        dockerfile: "Dockerfile",
+        exposeViaProxy: false,
+        restart: "always",
+      });
+      expect(manifest.exposeViaProxy).toBe(false);
+      expect(manifest.restart).toBe("always");
     });
   });
 
@@ -181,7 +273,10 @@ describe("resource command", () => {
       // Backends and workers have no generated Vite config, so no guard.
       expect(createPackageJson("api", "backend").scripts).not.toHaveProperty("prebuild");
 
-      const dir = mkdtempSync(join(tmpdir(), "tdk-frontend-guard-"));
+      const hasBun = spawnSync("bun", ["--version"], { encoding: "utf-8" }).status === 0;
+      if (!hasBun) return;
+
+      const dir = mkdtempSync(join(tmpdir(), "flisk-frontend-guard-"));
       try {
         let stderr = "";
         try {
@@ -190,7 +285,7 @@ describe("resource command", () => {
         } catch (error) {
           stderr = String((error as { stderr?: Buffer }).stderr ?? error);
         }
-        expect(stderr).toContain("tdk up");
+        expect(stderr).toContain("flisk up");
         expect(stderr).toContain(".autogenerated/vite.config.build.autogenerated.ts");
 
         mkdirSync(join(dir, ".autogenerated"));
@@ -254,10 +349,19 @@ describe("resource command", () => {
     });
 
     it("lists node types for non-frontend resources (TS7 does not auto-include @types)", () => {
-      for (const type of ["backend", "worker", "mcp"] as const) {
+      for (const type of ["backend", "worker", "mcp", "agent"] as const) {
         expect(createResourceTsconfig(type).compilerOptions.types).toEqual(["node"]);
       }
       expect(createResourceTsconfig("frontend").compilerOptions).not.toHaveProperty("types");
+    });
+
+    it("handles all creatable resource types when generating tsconfig", () => {
+      for (const type of ["backend", "worker", "mcp", "agent", "bring-your-own"] as const) {
+        const config = createResourceTsconfig(type);
+        expect(config.compilerOptions.target).toBe("ES2022");
+        expect(config.compilerOptions.strict).toBe(true);
+        expect(config.include).toContain("src/**/*");
+      }
     });
   });
 
@@ -277,7 +381,7 @@ describe("resource command", () => {
       expect(() => getFrontendFramework("__proto__")).toThrow(/Unknown frontend framework/);
       expect(getFrontendFramework("React").id).toBe("react");
       expect(getFrontendFramework(" VUE ").id).toBe("vue");
-      expect(() => getFrontendFramework("angular")).toThrow(TdkError);
+      expect(() => getFrontendFramework("angular")).toThrow(FliskError);
       expect(() => getFrontendFramework("")).toThrow(/Unknown frontend framework/);
     });
 
@@ -305,8 +409,49 @@ describe("resource command", () => {
       expect(files[0]?.content).toContain("<title>sample-web</title>");
       expect(files[0]?.content).toContain("/src/main.tsx");
       expect(files[1]?.content).toContain("ReactDOM.createRoot");
-      expect(files[2]?.content).toContain("Frontend resource created with TDK");
+      expect(files[2]?.content).toContain("Flisk frontend");
       expect(files.some(({ filename }) => filename === "vite.config.ts")).toBe(false);
+    });
+
+    it("adds the backend health card to the React starter only when a backend is wired", () => {
+      const withBackend = getFrontendFramework().createFiles("sample-web", {
+        backendName: "shop-api",
+      });
+      const app = withBackend.find(({ filename }) => filename === "src/App.tsx")?.content ?? "";
+
+      expect(app).toContain("const API_URL = import.meta.env.VITE_API_URL");
+      expect(app).toContain('/// <reference types="vite/client" />');
+      expect(app).toContain("fetch(API_URL + '/health'");
+      expect(app).toContain("const BACKEND_NAME = 'shop-api'");
+      expect(app).toContain("unreachable");
+      expect(app).toContain("http://localhost:10350");
+      expect(app).toContain("flisk status");
+
+      const standalone = getFrontendFramework().createFiles("sample-web");
+      const plainApp = standalone.find(({ filename }) => filename === "src/App.tsx")?.content ?? "";
+      expect(plainApp).not.toContain("fetch(");
+      expect(plainApp).not.toContain("Backend:");
+      expect(plainApp).toContain("Flisk frontend");
+      expect(plainApp).toContain("http://localhost:10350");
+    });
+
+    it("adds the backend health card to the Vue starter only when a backend is wired", () => {
+      const withBackend = getFrontendFramework("vue").createFiles("sample-web", {
+        backendName: "shop-api",
+      });
+      const app = withBackend.find(({ filename }) => filename === "src/App.vue")?.content ?? "";
+
+      expect(app).toContain("import.meta.env.VITE_API_URL");
+      expect(app).toContain("fetch(API_URL + '/health')");
+      expect(app).toContain("const BACKEND_NAME = 'shop-api'");
+      expect(app).toContain("unreachable");
+
+      const plainApp =
+        getFrontendFramework("vue")
+          .createFiles("sample-web")
+          .find(({ filename }) => filename === "src/App.vue")?.content ?? "";
+      expect(plainApp).not.toContain("fetch(");
+      expect(plainApp).toContain("Flisk frontend");
     });
 
     it("keeps Vue source and dependencies in its provider", () => {
@@ -363,7 +508,7 @@ describe("resource command", () => {
       ]);
       expect(files[0]?.content).toContain("/src/main.tsx");
       expect(files[1]?.content).toContain("from 'preact'");
-      expect(files[2]?.content).toContain("Frontend resource created with TDK");
+      expect(files[2]?.content).toContain("Frontend resource created with Flisk");
       expect(files.some(({ filename }) => filename === "vite.config.ts")).toBe(false);
     });
   });
@@ -383,7 +528,7 @@ describe("resource command", () => {
       ]);
       expect(files[0]?.content).toContain("<app-root></app-root>");
       expect(files[2]?.content).toContain("from 'lit'");
-      expect(files[2]?.content).toContain("Frontend resource created with TDK");
+      expect(files[2]?.content).toContain("Frontend resource created with Flisk");
       expect(files.some(({ filename }) => filename === "vite.config.ts")).toBe(false);
     });
 
@@ -401,7 +546,7 @@ describe("resource command", () => {
       ]);
       expect(files[0]?.content).toContain('<div id="app"></div>');
       expect(files[1]?.content).toContain("from './app'");
-      expect(files[2]?.content).toContain("Frontend resource created with TDK");
+      expect(files[2]?.content).toContain("Frontend resource created with Flisk");
       expect(files.some(({ filename }) => filename === "vite.config.ts")).toBe(false);
     });
 
@@ -420,7 +565,7 @@ describe("resource command", () => {
         "src/App.tsx",
       ]);
       expect(files[1]?.content).toContain("from 'solid-js/web'");
-      expect(files[2]?.content).toContain("Frontend resource created with TDK");
+      expect(files[2]?.content).toContain("Frontend resource created with Flisk");
       expect(files.some(({ filename }) => filename === "vite.config.ts")).toBe(false);
     });
 
@@ -441,10 +586,10 @@ describe("resource command", () => {
       // The app is served under /<name>/, so the router must take Vite's base as its basepath.
       expect(files[1]?.content).toContain("RouterProvider");
       expect(files[2]?.content).toContain("basepath: import.meta.env.BASE_URL");
-      // `tsc` fails the image build on import.meta.env without the Vite client types (seen in a real tdk up).
+      // `tsc` fails the image build on import.meta.env without the Vite client types (seen in a real flisk up).
       expect(files[2]?.content).toContain('/// <reference types="vite/client" />');
       expect(files[2]?.content).toContain("createRoute");
-      expect(files[2]?.content).toContain("Frontend resource created with TDK");
+      expect(files[2]?.content).toContain("Frontend resource created with Flisk");
       expect(files.some(({ filename }) => filename === "vite.config.ts")).toBe(false);
     });
 
@@ -466,14 +611,14 @@ describe("resource command", () => {
       ]);
       expect(files[1]?.content).toContain("render(document.getElementById('app')");
       expect(files[2]?.content).toContain("component$");
-      expect(files[2]?.content).toContain("Frontend resource created with TDK");
+      expect(files[2]?.content).toContain("Frontend resource created with Flisk");
       expect(files.some(({ filename }) => filename === "vite.config.ts")).toBe(false);
     });
   });
 
   describe("legacy frontend service metadata", () => {
     it("discovers a frontend without framework without rewriting service.json", () => {
-      const projectRoot = mkdtempSync(join(tmpdir(), "tdk-legacy-frontend-"));
+      const projectRoot = mkdtempSync(join(tmpdir(), "flisk-legacy-frontend-"));
       try {
         const serviceDir = join(projectRoot, "apps", "legacy-web");
         mkdirSync(serviceDir, { recursive: true });
@@ -513,8 +658,8 @@ describe("resource command", () => {
       expect(getDockerfileTemplate(6000)).not.toContain("HEALTHCHECK");
     });
 
-    it("says that tdk up does not use it", () => {
-      expect(getDockerfileTemplate(4000)).toMatch(/tdk up. does NOT build this file/);
+    it("says that flisk up does not use it", () => {
+      expect(getDockerfileTemplate(4000)).toMatch(/flisk up. does NOT build this file/);
     });
   });
 
@@ -581,6 +726,17 @@ describe("resource command", () => {
       expect(indexContent).toContain("app.get('/health/ready'");
       expect(indexContent).toContain("async (c)");
       expect(indexContent).toContain(`service: '${name}'`);
+    });
+
+    it("allows CORS from the *.localhost frontend origins and keeps /health unchanged", () => {
+      const indexContent = getBackendIndexTemplate("test-service");
+
+      expect(indexContent).toContain("import { cors } from 'hono/cors';");
+      expect(indexContent).toContain("app.use('*', cors({");
+      expect(indexContent).toContain(String.raw`/^https?:\/\/([a-z0-9-]+\.)+localhost(:\d+)?$/`);
+      expect(indexContent).not.toContain("origin: '*'");
+      expect(indexContent).toContain("app.get('/health', (c) => {");
+      expect(indexContent).toContain("return c.json({ status: 'ok', service: 'test-service' });");
     });
 
     it("should have root endpoint with service info", () => {
@@ -652,7 +808,7 @@ describe("service.json schema", () => {
   it("keeps framework open to every registered frontend provider", () => {
     const schemaPath = join(
       dirname(fileURLToPath(import.meta.url)),
-      "../../../../engine/schemas/service-schema.json",
+      "../../../../runtime/engine/schemas/service-schema.json",
     );
     const schema = JSON.parse(readFileSync(schemaPath, "utf-8"));
 
@@ -691,7 +847,7 @@ describe("parseResourceType", () => {
   });
 
   it("rejects an unknown type with the supported list instead of prompting", () => {
-    expect(() => parseResourceType("bogus")).toThrow(TdkError);
+    expect(() => parseResourceType("bogus")).toThrow(FliskError);
     expect(() => parseResourceType("bogus")).toThrow(
       /Unknown resource type "bogus"\. Supported types: backend, frontend/,
     );
@@ -699,12 +855,12 @@ describe("parseResourceType", () => {
   });
 });
 
-const resourceCliPath = join(dirname(fileURLToPath(import.meta.url)), "../../../bin/tdk.js");
+const resourceCliPath = join(dirname(fileURLToPath(import.meta.url)), "../../../bin/flisk.js");
 
 function createResourceProject(): string {
-  const projectRoot = mkdtempSync(join(tmpdir(), "tdk-resource-cli-"));
-  mkdirSync(join(projectRoot, ".tdk"), { recursive: true });
-  writeFileSync(join(projectRoot, ".tdk", "project.json"), "{}\n");
+  const projectRoot = mkdtempSync(join(tmpdir(), "flisk-resource-cli-"));
+  mkdirSync(join(projectRoot, ".flisk"), { recursive: true });
+  writeFileSync(join(projectRoot, ".flisk", "project.json"), "{}\n");
   return projectRoot;
 }
 
@@ -926,6 +1082,43 @@ describe("resource command non-interactive mode", () => {
       expect(existsSync(join(projectRoot, "services", "beta", "new-api", "service.json"))).toBe(
         false,
       );
+    } finally {
+      rmSync(projectRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("wraps a malformed service.json in a FliskError naming the file during registration", () => {
+    expect(() =>
+      parseExistingServiceJson('{"appName": "broken",', "/tmp/services/main/broken/service.json"),
+    ).toThrow(FliskError);
+    expect(() =>
+      parseExistingServiceJson('{"appName": "broken",', "/tmp/services/main/broken/service.json"),
+    ).toThrow(/Could not parse service\.json at \/tmp\/services\/main\/broken\/service\.json:/);
+
+    const projectRoot = createResourceProject();
+    try {
+      const resourceDir = join(projectRoot, "services", "main", "broken");
+      const manifestPath = join(resourceDir, "service.json");
+      mkdirSync(resourceDir, { recursive: true });
+      writeFileSync(manifestPath, '{"appName": "broken",\n');
+
+      const result = runResourceCli(projectRoot, [
+        "broken",
+        "--type",
+        "backend",
+        "--path",
+        "services/main/broken",
+        "--register-existing",
+        "--yes",
+      ]);
+      const output = result.stdout + result.stderr;
+
+      expect(result.status).toBe(1);
+      // The CLI reports the manifest path it actually read, which is the resolved
+      // (symlink-free) path: on macOS the temporary directory is `/var/...` but the
+      // spawned process sees `/private/var/...`.
+      expect(output).toContain(`Could not parse service.json at ${realpathSync(manifestPath)}:`);
+      expect(readFileSync(manifestPath, "utf8")).toBe('{"appName": "broken",\n');
     } finally {
       rmSync(projectRoot, { recursive: true, force: true });
     }

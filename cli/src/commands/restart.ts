@@ -1,13 +1,19 @@
-// Copyright (c) 2026 TDK Landscape contributors
+// Copyright (c) 2026 Flisk Landscape contributors
 // SPDX-License-Identifier: MIT
 import chalk from "chalk";
 import { Command } from "commander";
 import { STANDARD_PORTS } from "../utils/constants.js";
-import { errorFactories, runCommand, TdkError } from "../utils/errors.js";
+import {
+  errorFactories,
+  FliskError,
+  ProcessExitError,
+  runCommand,
+  showErrorAndExit,
+} from "../utils/errors.js";
 import { createMachineEnvelope, writeMachineError } from "../utils/machine-output.js";
 import { findProjectRoot } from "../utils/paths.js";
 import { isTiltAvailable, runTilt } from "../utils/tilt.js";
-import { isTiltConnectionFailure } from "../utils/tilt-logs.js";
+import { isTiltConnectionFailure, isValidPort } from "../utils/tilt-logs.js";
 import { tiltUnreachableMessage } from "../utils/tilt-unreachable-message.js";
 
 export const restartCommand = new Command("restart")
@@ -16,6 +22,18 @@ export const restartCommand = new Command("restart")
   .option("--port <n>", "Tilt UI port (default: TILT_PORT or 10350)")
   .option("--json", "Output one JSON object and exit", false)
   .action(async (resourceName: string, options) => {
+    const portText = options.port ?? process.env.TILT_PORT ?? String(STANDARD_PORTS.tiltUi);
+    if (!isValidPort(portText)) {
+      const portSource = options.port !== undefined ? "--port" : "TILT_PORT";
+      const message = `${portSource} must be a valid port number`;
+      if (options.json) {
+        console.log(JSON.stringify(createMachineEnvelope(null, [{ code: "USAGE", message }])));
+        console.error(message);
+        process.exit(2);
+      }
+      showErrorAndExit(message, 2);
+    }
+
     const action = async (): Promise<void> => {
       const root = findProjectRoot();
       if (!root) {
@@ -24,7 +42,6 @@ export const restartCommand = new Command("restart")
         error.exit();
       }
 
-      const portText = options.port ?? process.env.TILT_PORT ?? String(STANDARD_PORTS.tiltUi);
       let tiltAvailable = false;
       try {
         tiltAvailable = await isTiltAvailable();
@@ -44,7 +61,7 @@ export const restartCommand = new Command("restart")
           );
           process.exit(1);
         }
-        throw new TdkError(msg, ["Start the stack first with: tdk up"]);
+        throw new FliskError(msg, ["Start the stack first with: flisk up"]);
       }
 
       const result = await runTilt("trigger", [resourceName, "--port", portText], {
@@ -63,7 +80,7 @@ export const restartCommand = new Command("restart")
             );
             process.exit(1);
           }
-          throw new TdkError(msg, ["Start the stack first with: tdk up"]);
+          throw new FliskError(msg, ["Start the stack first with: flisk up"]);
         }
         if (options.json) {
           console.log(
@@ -73,7 +90,7 @@ export const restartCommand = new Command("restart")
           );
           process.exit(1);
         }
-        throw new TdkError(`Failed to restart ${resourceName}: ${detail}`);
+        throw new FliskError(`Failed to restart ${resourceName}: ${detail}`);
       }
 
       if (options.json) {
@@ -90,6 +107,9 @@ export const restartCommand = new Command("restart")
       try {
         await action();
       } catch (err) {
+        if (err instanceof ProcessExitError) {
+          throw err;
+        }
         writeMachineError(err);
       }
       return;

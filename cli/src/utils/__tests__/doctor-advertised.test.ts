@@ -1,4 +1,4 @@
-// Copyright (c) 2026 TDK Landscape contributors
+// Copyright (c) 2026 Flisk Landscape contributors
 // SPDX-License-Identifier: MIT
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { DiscoveredResource } from "../../types/index.js";
@@ -13,10 +13,10 @@ const resources = [
 
 describe("advertised endpoint targets", () => {
   beforeEach(() => {
-    process.env.TDK_SERVICE_BASE_URL = "http://shop.localhost";
+    process.env.FLISK_SERVICE_BASE_URL = "http://shop.localhost";
   });
   afterEach(() => {
-    delete process.env.TDK_SERVICE_BASE_URL;
+    delete process.env.FLISK_SERVICE_BASE_URL;
   });
 
   it("uses the bare advertised URL, with no /health suffix", () => {

@@ -53,7 +53,7 @@
 				"kind": "map"
 			},
 			"groups": [
-				"resource-types"
+				"languages"
 			],
 			"defaults": [
 				"bun"
@@ -66,7 +66,10 @@
 					"leg": "resource-types/backend"
 				},
 				"go": {
-					"leg": "journeys/dev-loop"
+					"legs": [
+						"journeys/dev-loop",
+						"resource-types/backend"
+					]
 				},
 				"rust": {
 					"leg": "resource-types/backend"
@@ -155,6 +158,9 @@
 				},
 				"tanstack-router": {
 					"leg": "resource-types/frontend"
+				},
+				"next": {
+					"leg": "resource-types/frontend"
 				}
 			},
 			"interactions": []
@@ -211,9 +217,22 @@
 			"values": {
 				"database-management": {
 					"allow": "#1291"
-				},
+				}
+			},
+			"interactions": []
+		},
+		"orm": {
+			"source": null,
+			"groups": [
+				"orm"
+			],
+			"defaults": [],
+			"values": {
 				"prisma": {
-					"allow": "#1291"
+					"leg": "orm/prisma"
+				},
+				"drizzle": {
+					"leg": "orm/drizzle"
 				}
 			},
 			"interactions": []

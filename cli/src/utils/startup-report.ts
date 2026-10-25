@@ -1,7 +1,8 @@
-// Copyright (c) 2026 TDK Landscape contributors
+// Copyright (c) 2026 Flisk Landscape contributors
 // SPDX-License-Identifier: MIT
 import { parseTiltResourceFailures, summarizeTiltBuildError } from "./doctor-runtime.js";
-import { portConflictFix } from "./port-conflict-fix.js";
+import { conflictPort, portConflictFix } from "./port-conflict-fix.js";
+import type { PortOccupant } from "./port-occupant.js";
 import { effectiveRuntimeStatus, isTiltResourcePending } from "./tilt-resource-state.js";
 import { onlyEnabledResources } from "./up-readiness.js";
 
@@ -88,11 +89,16 @@ export function isStartupStalled(
   return report.failed.length > 0 && report.starting.length === 0;
 }
 
-export function formatStartupReport(report: StartupReport, timedOut: boolean): string[] {
+export function formatStartupReport(
+  report: StartupReport,
+  timedOut: boolean,
+  occupantOf?: (port: number) => PortOccupant | null,
+): string[] {
   const lines: string[] = [];
   for (const { name, message } of report.failed) {
     lines.push(`✗ ${name} failed: ${message}`);
-    const fix = portConflictFix(message);
+    const port = conflictPort(message);
+    const fix = portConflictFix(message, port !== null && occupantOf ? occupantOf(port) : null);
     if (fix) lines.push(`  ${fix}`);
   }
   for (const { name, because } of report.blocked) {
@@ -111,7 +117,7 @@ export function formatStartupReport(report: StartupReport, timedOut: boolean): s
         ? `: ${causes.join(", ")} failed, so ${count} dependent ${count === 1 ? "service is" : "services are"} not ready`
         : "";
     lines.push(
-      `The environment is not ready${summary}. Tilt is still running; inspect it or run: tdk down`,
+      `The environment is not ready${summary}. Tilt is still running; inspect it or run: flisk down`,
     );
   }
   return lines;

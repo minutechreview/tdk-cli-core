@@ -1,4 +1,4 @@
-// Copyright (c) 2026 TDK Landscape contributors
+// Copyright (c) 2026 Flisk Landscape contributors
 // SPDX-License-Identifier: MIT
 import { execFileSync } from "node:child_process";
 import { realpathSync } from "node:fs";
@@ -17,7 +17,7 @@ const run: CommandRunner = (command, args) =>
 
 export interface TiltPortOwner {
   pid: number;
-  /** The project root of the Tiltfile (`tilt up -f <root>/.tdk/.tdk-out/Tiltfile`). */
+  /** The project root of the Tiltfile (`tilt up -f <root>/.flisk/.flisk-out/Tiltfile`). */
   root: string;
 }
 

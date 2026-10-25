@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Bundles failure evidence from one E2E job (#1382): Docker container status and logs, Tilt resource state, `tdk doctor`
+# Bundles failure evidence from one E2E job (#1382): Docker container status and logs, Tilt resource state, `flisk doctor`
 # output, and the logs and generated project files under the given source directories. Writes <out-dir>/manifest.json
 # beside them. The workflow uploads <out-dir> only when the job failed, for 7 days.
 #
@@ -16,7 +16,7 @@ shift 2
 
 runner_temp="${RUNNER_TEMP:-${TMPDIR:-/tmp}}"
 if [ "$#" -eq 0 ]; then
-  set -- "$runner_temp/tdk-e2e" "$runner_temp/shop" "$runner_temp/tdk-cold-start" "$runner_temp/smoke-records" "$runner_temp/tdk-byo-python-boot"
+  set -- "$runner_temp/flisk-e2e" "$runner_temp/shop" "$runner_temp/flisk-cold-start" "$runner_temp/smoke-records" "$runner_temp/flisk-byo-python-boot"
 fi
 
 budget=$((20 * 1024 * 1024))
@@ -74,18 +74,18 @@ if command -v docker >/dev/null 2>&1; then
   done < <(docker ps -a --format '{{.Names}}' 2>/dev/null)
 fi
 
-# Tilt: resource state (the Tilt log stream is read from the source directories, where tdk up wrote it).
+# Tilt: resource state (the Tilt log stream is read from the source directories, where flisk up wrote it).
 if command -v tilt >/dev/null 2>&1; then
   tilt get uiresources -o wide 2>&1 | head -200 > "$work/tilt" || true
   redact < "$work/tilt" > "$work/tilt.redacted" && commit "$work/tilt.redacted" tilt/uiresources.txt
 fi
 
-# tdk: doctor and status are read-only checks, so they are safe on a failed run.
-if command -v tdk >/dev/null 2>&1; then
-  tdk doctor --json 2>&1 | tail -n 500 > "$work/doctor" || true
-  redact < "$work/doctor" > "$work/doctor.redacted" && commit "$work/doctor.redacted" logs/tdk-doctor.json
-  tdk status --json 2>&1 | tail -n 500 > "$work/status" || true
-  redact < "$work/status" > "$work/status.redacted" && commit "$work/status.redacted" logs/tdk-status.json
+# flisk: doctor and status are read-only checks, so they are safe on a failed run.
+if command -v flisk >/dev/null 2>&1; then
+  flisk doctor --json 2>&1 | tail -n 500 > "$work/doctor" || true
+  redact < "$work/doctor" > "$work/doctor.redacted" && commit "$work/doctor.redacted" logs/flisk-doctor.json
+  flisk status --json 2>&1 | tail -n 500 > "$work/status" || true
+  redact < "$work/status" > "$work/status.redacted" && commit "$work/status.redacted" logs/flisk-status.json
 fi
 
 # Source directories: logs are tailed; generated project files are copied up to a size cap. .env files and dependency
@@ -113,7 +113,7 @@ for dir in "$@"; do
     esac
     redact < "$work/src" > "$work/src.redacted"
     commit "$work/src.redacted" "generated/$safe"
-  done < <(find "$dir" \( -name node_modules -o -name .git -o -name .tdk-cache \) -prune -o -type f \
+  done < <(find "$dir" \( -name node_modules -o -name .git -o -name .flisk-cache \) -prune -o -type f \
     \( -name '*.log' -o -name '*.out' -o -name '*.json' -o -name '*.yml' -o -name '*.yaml' -o -name 'Tiltfile' -o -name '*.star' -o -name '*.md' \) \
     ! -name '.env*' ! -name '*.env' -print 2>/dev/null)
 done

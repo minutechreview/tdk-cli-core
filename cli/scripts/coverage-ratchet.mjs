@@ -1,4 +1,4 @@
-// Copyright (c) 2026 TDK Landscape contributors
+// Copyright (c) 2026 Flisk Landscape contributors
 // SPDX-License-Identifier: MIT
 //
 // Coverage ratchet for the high-risk CLI areas. Reads the JSON-summary written by `bun run test:coverage`, adds up the
@@ -28,7 +28,7 @@ const AREAS = [
     name: "install and update",
     match: (rel) =>
       rel === "src/commands/upgrade.ts" ||
-      rel === "src/utils/tdk-version.ts" ||
+      rel === "src/utils/flisk-version.ts" ||
       rel === "src/utils/bun-floor.ts" ||
       rel === "src/utils/bun-requirement.ts",
   },

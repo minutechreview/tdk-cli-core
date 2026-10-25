@@ -1,4 +1,4 @@
-// Copyright (c) 2026 TDK Landscape contributors
+// Copyright (c) 2026 Flisk Landscape contributors
 // SPDX-License-Identifier: MIT
 import { execFileSync } from "node:child_process";
 const run = (command, args) => execFileSync(command, args, { encoding: "utf-8", stdio: "pipe", windowsHide: true });
@@ -18,11 +18,11 @@ export function projectNetworkNames(projectName) {
     return PROJECT_NETWORK_SUFFIXES.map((suffix) => `${prefix}_${suffix}`);
 }
 /**
- * Prefixes of TDK projects among `networkNames`, from the networks the engine creates. Generic suffixes such as
- * `backend` also occur in non-TDK compose projects, so a prefix counts only if it has a Traefik network, which
- * only TDK creates.
+ * Prefixes of Flisk projects among `networkNames`, from the networks the engine creates. Generic suffixes such as
+ * `backend` also occur in non-Flisk compose projects, so a prefix counts only if it has a Traefik network, which
+ * only Flisk creates.
  */
-export function tdkNetworkPrefixes(networkNames) {
+export function fliskNetworkPrefixes(networkNames) {
     const prefixes = new Set();
     for (const name of networkNames) {
         for (const marker of ["traefik-public", "traefik-private"]) {
@@ -32,8 +32,8 @@ export function tdkNetworkPrefixes(networkNames) {
     }
     return prefixes;
 }
-/** The TDK project prefix a network belongs to (`umami` for `umami_backend`), or null. */
-export function tdkNetworkOwner(name, prefixes) {
+/** The Flisk project prefix a network belongs to (`umami` for `umami_backend`), or null. */
+export function fliskNetworkOwner(name, prefixes) {
     for (const suffix of PROJECT_NETWORK_SUFFIXES) {
         if (name.endsWith(`_${suffix}`)) {
             const prefix = name.slice(0, -(suffix.length + 1));

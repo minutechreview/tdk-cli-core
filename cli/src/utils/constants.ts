@@ -1,4 +1,4 @@
-// Copyright (c) 2026 TDK Landscape contributors
+// Copyright (c) 2026 Flisk Landscape contributors
 // SPDX-License-Identifier: MIT
 import type { ResourceType } from "../types/index.js";
 
@@ -37,8 +37,8 @@ export const TECH_STACK_FILE = "TILT_TECH_STACK.star";
 
 export const RESOURCE_DEFAULTS_FILE = "TILT_RESOURCE_DEFAULTS.star";
 
-// TDK project manifest file name. The canonical project config lives at
-// `<project-root>/.tdk/project.json` — discovery, doctor, generator, config
+// Flisk project manifest file name. The canonical project config lives at
+// `<project-root>/.flisk/project.json` — discovery, doctor, generator, config
 // edits, and stack-features all read/write it. Referenced by value across
 // these modules, so a typo in one copy would compile and silently stop
 // matching (or worse, read a different file). Keep the literal here and
@@ -112,14 +112,14 @@ export const STANDARD_PORTS = {
   traefik: 8080,
 } as const;
 
-export const QUICKSTART_DOCS_URL = "https://tdk-landscape.github.io/tdk-website/docs/quickstart/";
+export const QUICKSTART_DOCS_URL = "https://flisk.sh/docs/quickstart/";
 
-export const BASE_DOMAIN_DEFAULT = "tdk-project.localhost";
+export const BASE_DOMAIN_DEFAULT = "flisk-project.localhost";
 export const APP_SUBDOMAIN_PREFIX = "app";
 export const API_SUBDOMAIN_PREFIX = "api";
 
 export function getBaseDomain(): string {
-  const override = process.env.TDK_SERVICE_BASE_URL ?? process.env.TDK_PUBLIC_HOST;
+  const override = process.env.FLISK_SERVICE_BASE_URL ?? process.env.FLISK_PUBLIC_HOST;
   if (override) {
     try {
       const u = new URL(override.includes("://") ? override : `http://${override}`);

@@ -1,11 +1,11 @@
-// Copyright (c) 2026 TDK Landscape contributors
+// Copyright (c) 2026 Flisk Landscape contributors
 // SPDX-License-Identifier: MIT
 import { readFileSync } from "node:fs";
 import chalk from "chalk";
 import { Command } from "commander";
-import { assertValid, confirmOrCancel } from "../utils/command-helpers.js";
+import { addYesOption, assertValid, confirmOrCancel } from "../utils/command-helpers.js";
 import { clearDiscoveryCache, createDiscoveryContext } from "../utils/discovery-context.js";
-import { errorFactories, requireProjectRoot, runCommand, TdkError } from "../utils/errors.js";
+import { errorFactories, FliskError, requireProjectRoot, runCommand } from "../utils/errors.js";
 import { writeJsonFile } from "../utils/file-helpers.js";
 import { formatCount, showAllSatisfyCondition, showCommandHeader, showDetail, showSuccess, } from "../utils/formatting.js";
 import { promptMultiSelect, promptText } from "../utils/prompt.js";
@@ -16,7 +16,7 @@ export function parseStackResourceConfig(content, configPath) {
     }
     catch (error) {
         const reason = error instanceof Error ? error.message : String(error);
-        throw new TdkError(`Could not parse service.json at ${configPath}: ${reason}`);
+        throw new FliskError(`Could not parse service.json at ${configPath}: ${reason}`);
     }
 }
 function normalizeResourceNames(names) {
@@ -26,12 +26,11 @@ function normalizeResourceNames(names) {
         .filter(Boolean));
     return [...new Set(normalizedNames)];
 }
-export const stackCommand = new Command("stack")
+export const stackCommand = addYesOption(new Command("stack"))
     .description("Organize resources into stacks (groups)")
     .argument("[stack-name]", "Stack name to assign to resources")
     .option("--list", "List resources without a stack", false)
     .option("--resources <names...>", "Resource names to add (comma- or space-separated)")
-    .option("--yes", "Skip confirmation prompt", false)
     .action(async (stackName, options) => {
     await runCommand(async () => {
         requireProjectRoot();
@@ -64,18 +63,18 @@ export const stackCommand = new Command("stack")
         }
         if (!process.stdin.isTTY) {
             if (options.resources === undefined) {
-                throw new TdkError("Interactive resource selection requires a TTY.", [
+                throw new FliskError("Interactive resource selection requires a TTY.", [
                     "Pass --resources <name...> to select resources without a prompt.",
                     "Use --list to inspect unassigned resources without changing them.",
                 ]);
             }
             if (!stackName) {
-                throw new TdkError("A stack name is required when stdin is not a TTY.", [
-                    "Use: tdk stack <stack-name> --resources <name...> [--yes]",
+                throw new FliskError("A stack name is required when stdin is not a TTY.", [
+                    "Use: flisk stack <stack-name> --resources <name...> [--yes]",
                 ]);
             }
             if (!options.yes) {
-                throw new TdkError("Confirmation requires a TTY.", [
+                throw new FliskError("Confirmation requires a TTY.", [
                     "Pass --yes to skip confirmation when assigning resources without a TTY.",
                 ]);
             }
@@ -98,8 +97,8 @@ export const stackCommand = new Command("stack")
         if (options.resources !== undefined) {
             const requestedNames = normalizeResourceNames(options.resources);
             if (requestedNames.length === 0) {
-                throw new TdkError("Pass at least one resource name to --resources.", [
-                    "Example: `tdk stack api --resources users-api orders-api --yes`",
+                throw new FliskError("Pass at least one resource name to --resources.", [
+                    "Example: `flisk stack api --resources users-api orders-api --yes`",
                 ]);
             }
             const configPathsByName = new Map();
@@ -110,7 +109,7 @@ export const stackCommand = new Command("stack")
             }
             const duplicates = [...configPathsByName].filter(([, configPaths]) => configPaths.length > 1);
             if (duplicates.length > 0) {
-                throw new TdkError("Cannot assign resources while duplicate names are present.", duplicates.map(([name, configPaths]) => `Duplicate "${name}" found in ${configPaths.join(" and ")}`));
+                throw new FliskError("Cannot assign resources while duplicate names are present.", duplicates.map(([name, configPaths]) => `Duplicate "${name}" found in ${configPaths.join(" and ")}`));
             }
             const validNames = [...configPathsByName.keys()].sort();
             const resourceByName = new Map(discovery.resources.map((resource) => [resource.name, resource]));
@@ -122,7 +121,7 @@ export const stackCommand = new Command("stack")
                     throw error;
                 }
                 if (resource.stack) {
-                    throw new TdkError(`Resource "${name}" is already assigned to stack "${resource.stack}".`, ["Run `tdk resources` to review current assignments."]);
+                    throw new FliskError(`Resource "${name}" is already assigned to stack "${resource.stack}".`, ["Run `flisk resources` to review current assignments."]);
                 }
                 selectedResources.push(resource.configPath);
             }
@@ -167,6 +166,6 @@ export const stackCommand = new Command("stack")
         }
         console.log();
         showSuccess(`Updated ${formatCount(updated, "resource")}.`);
-        showDetail(`\nYou can now run: tdk up ${targetStack}`, 0);
+        showDetail(`\nYou can now run: flisk up ${targetStack}`, 0);
     });
 });

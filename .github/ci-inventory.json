@@ -58,6 +58,14 @@
 			"owner": "maintainers"
 		},
 		{
+			"workflow": "byo-template-e2e.yml",
+			"job": "e2e",
+			"tier": "e2e",
+			"required": false,
+			"reason": "Reusable workflow called by flisk-sh/flisk-template-* repositories: one template through flisk up and Traefik (#1965)",
+			"owner": "maintainers"
+		},
+		{
 			"workflow": "ci.yml",
 			"job": "changes",
 			"tier": "gate",
@@ -139,6 +147,22 @@
 		},
 		{
 			"workflow": "ci.yml",
+			"job": "npm-package-smoke",
+			"tier": "test",
+			"required": false,
+			"reason": "Installs the pinned @flisk-sh/flisk from npm and checks its version on every non-docs PR",
+			"owner": "maintainers"
+		},
+		{
+			"workflow": "ci.yml",
+			"job": "npm-registry-audit",
+			"tier": "test",
+			"required": false,
+			"reason": "Audits the pinned published tarball's contents; not gated, since no PR can change a published version",
+			"owner": "maintainers"
+		},
+		{
+			"workflow": "ci.yml",
 			"job": "secret-scan",
 			"tier": "gate",
 			"required": false,
@@ -159,6 +183,22 @@
 			"tier": "gate",
 			"required": false,
 			"reason": "Workflow audit on workflow changes",
+			"owner": "maintainers"
+		},
+		{
+			"workflow": "e2e-premium-endpoint.yml",
+			"job": "live",
+			"tier": "e2e",
+			"required": false,
+			"reason": "Nightly live check that the default premium endpoint reaches the distribution worker; granted-key case needs the FLISK_E2E_LICENSE_KEY secret",
+			"owner": "maintainers"
+		},
+		{
+			"workflow": "security-alert-issues.yml",
+			"job": "sync",
+			"tier": "bot",
+			"required": false,
+			"reason": "Opens one issue per open Dependabot or code-scanning alert so contributors can pick the fix up; closes it when the alert is fixed",
 			"owner": "maintainers"
 		},
 		{
@@ -195,10 +235,18 @@
 		},
 		{
 			"workflow": "ci.yml",
+			"job": "pr-summary-review",
+			"tier": "gate",
+			"required": true,
+			"reason": "Rejects PRs without a plain-language change summary and completed verification notes",
+			"owner": "maintainers"
+		},
+		{
+			"workflow": "ci.yml",
 			"job": "summary",
 			"tier": "gate",
-			"required": false,
-			"reason": "Aggregate gate: fails when a selected job failed",
+			"required": true,
+			"reason": "Aggregate gate: fails when a selected job failed or a required e2e gate is missing or failed; required (#1302)",
 			"owner": "maintainers"
 		},
 		{
@@ -226,11 +274,11 @@
 			"owner": "maintainers"
 		},
 		{
-			"workflow": "cold-start-e2e.yml",
-			"job": "cold-start",
-			"tier": "e2e",
+			"workflow": "codeql.yml",
+			"job": "starlark",
+			"tier": "security",
 			"required": false,
-			"reason": "Licensed deferred start; needs TDK_LICENSE_KEY; neutral when missing (#1288)",
+			"reason": "Unofficial Starlark analyzer (flisk-sh/codeql-starlark); report-only SARIF for Tiltfiles and *.star on every PR and weekly",
 			"owner": "maintainers"
 		},
 		{
@@ -266,46 +314,49 @@
 			"owner": "maintainers"
 		},
 		{
-			"workflow": "erp-scale-e2e.yml",
-			"job": "erp",
-			"tier": "e2e",
+			"workflow": "dependabot-automerge.yml",
+			"job": "automerge",
+			"tier": "bot",
 			"required": false,
-			"reason": "ERP fixture at 100 services; manual and weekly; suite tests/e2e/scale/erp (#1301)",
+			"reason": "Enables squash auto-merge on Dependabot PRs once required checks pass",
 			"owner": "maintainers"
 		},
 		{
-			"workflow": "example-e2e.yml",
+			"workflow": "e2e-scale.yml",
 			"job": "docs",
 			"tier": "gate",
 			"required": false,
-			"reason": "Detects docs-only PRs for the example",
+			"reason": "Detects docs-only PRs for the scale gate (#1302)",
 			"owner": "maintainers",
 			"exempt": {
 				"check-name": "#1283"
 			}
 		},
 		{
-			"workflow": "example-e2e.yml",
-			"job": "example-e2e",
+			"workflow": "e2e-scale.yml",
+			"job": "e2e-scale",
 			"tier": "e2e",
-			"required": true,
-			"reason": "Default example boots; required; suite tests/e2e/examples/default",
+			"required": false,
+			"reason": "ERP scale gate on pull requests and merge queue (one-stack scope); required since the #1302 cutover; suite tests/e2e/scale/erp",
 			"owner": "maintainers"
 		},
 		{
-			"workflow": "examples-e2e.yml",
-			"job": "example",
-			"tier": "e2e",
+			"workflow": "e2e-examples.yml",
+			"job": "docs",
+			"tier": "gate",
 			"required": false,
-			"reason": "Example apps on real routes; nightly; moves in #1299",
-			"owner": "maintainers"
+			"reason": "Detects docs-only PRs for the examples gate (#1302)",
+			"owner": "maintainers",
+			"exempt": {
+				"check-name": "#1283"
+			}
 		},
 		{
-			"workflow": "go-dev-loop-e2e.yml",
-			"job": "go-dev-loop",
+			"workflow": "e2e-examples.yml",
+			"job": "e2e-examples",
 			"tier": "e2e",
 			"required": false,
-			"reason": "Go live reload; moves to journeys in #1298",
+			"reason": "Examples group gate, default leg; runs tests/e2e/examples/default; required since the #1302 cutover",
 			"owner": "maintainers"
 		},
 		{
@@ -377,6 +428,14 @@
 		},
 		{
 			"workflow": "publish-tdk-import.yml",
+			"job": "token",
+			"tier": "gate",
+			"required": false,
+			"reason": "Checks NPM_TOKEN and skips publishing with a warning when it is missing (#1288)",
+			"owner": "maintainers"
+		},
+		{
+			"workflow": "publish-tdk-import.yml",
 			"job": "build",
 			"tier": "release",
 			"required": false,
@@ -398,19 +457,11 @@
 			}
 		},
 		{
-			"workflow": "python-example-e2e.yml",
-			"job": "python-example-e2e",
-			"tier": "e2e",
+			"workflow": "publish-existing-npm-to-github-packages.yml",
+			"job": "publish",
+			"tier": "release",
 			"required": false,
-			"reason": "Python provider example; suite tests/e2e/examples/python",
-			"owner": "maintainers"
-		},
-		{
-			"workflow": "quickstart-e2e.yml",
-			"job": "quickstart",
-			"tier": "e2e",
-			"required": false,
-			"reason": "README quickstart; moves to journeys in #1298",
+			"reason": "Backfills and verifies an existing public npm version in GitHub Packages (manual)",
 			"owner": "maintainers"
 		},
 		{
@@ -434,6 +485,22 @@
 		},
 		{
 			"workflow": "release-binaries.yml",
+			"job": "publish-github-packages",
+			"tier": "release",
+			"required": false,
+			"reason": "Publishes the already-built release tarball to GitHub Packages",
+			"owner": "maintainers"
+		},
+		{
+			"workflow": "release-binaries.yml",
+			"job": "publish-unscoped-npm",
+			"tier": "release",
+			"required": false,
+			"reason": "Publishes the already-built release tarball to npm under the unscoped name",
+			"owner": "maintainers"
+		},
+		{
+			"workflow": "release-binaries.yml",
 			"job": "windows-binary",
 			"tier": "e2e",
 			"required": false,
@@ -450,6 +517,22 @@
 			"exempt": {
 				"check-name": "#1279"
 			}
+		},
+		{
+			"workflow": "release-binaries.yml",
+			"job": "tag-bumped-release",
+			"tier": "release",
+			"required": false,
+			"reason": "Tags the merged version bump and publishes the GitHub release draft (#1657)",
+			"owner": "maintainers"
+		},
+		{
+			"workflow": "sign-release.yml",
+			"job": "sign",
+			"tier": "release",
+			"required": false,
+			"reason": "Signs the checksums of an already-published version that release-binaries.yml left unsigned (Scorecard Signed-Releases)",
+			"owner": "maintainers"
 		},
 		{
 			"workflow": "release-candidate.yml",
@@ -500,22 +583,6 @@
 			"owner": "maintainers"
 		},
 		{
-			"workflow": "smoke-e2e.yml",
-			"job": "smoke-e2e",
-			"tier": "e2e",
-			"required": false,
-			"reason": "Smoke runner; moves to journeys in #1298",
-			"owner": "maintainers"
-		},
-		{
-			"workflow": "broken-project-e2e.yml",
-			"job": "broken-project-e2e",
-			"tier": "e2e",
-			"required": false,
-			"reason": "Failure paths through tdk up: unhealthy service (BP3) and interrupted up (BP4); suite tests/e2e/journeys/broken-project (#1386)",
-			"owner": "maintainers"
-		},
-		{
 			"workflow": "sync-tdk-skills.yml",
 			"job": "sync",
 			"tier": "bot",
@@ -532,22 +599,22 @@
 			"owner": "maintainers"
 		},
 		{
-			"workflow": "windows-smoke.yml",
+			"workflow": "e2e-platforms.yml",
 			"job": "docs",
 			"tier": "gate",
 			"required": false,
-			"reason": "Detects docs-only PRs for windows-smoke",
+			"reason": "Detects docs-only PRs for the platforms gate (#1302)",
 			"owner": "maintainers",
 			"exempt": {
 				"check-name": "#1283"
 			}
 		},
 		{
-			"workflow": "windows-smoke.yml",
-			"job": "windows-smoke",
+			"workflow": "e2e-platforms.yml",
+			"job": "e2e-platforms",
 			"tier": "e2e",
-			"required": true,
-			"reason": "Windows CLI smoke; required; runs tests/e2e/platforms/windows (#1300)",
+			"required": false,
+			"reason": "Platforms group gate, windows leg; runs tests/e2e/platforms/windows; required since the #1302 cutover",
 			"owner": "maintainers"
 		},
 		{
@@ -570,19 +637,11 @@
 			"owner": "maintainers"
 		},
 		{
-			"workflow": "wsl2-smoke.yml",
-			"job": "wsl2-smoke",
-			"tier": "e2e",
-			"required": false,
-			"reason": "WSL2 smoke; manual; runs tests/e2e/platforms/wsl2 (#1300)",
-			"owner": "maintainers"
-		},
-		{
 			"workflow": "required-checks-drift.yml",
 			"job": "drift",
 			"tier": "report",
 			"required": false,
-			"reason": "Compares branch protection on main with the required-checks snapshot daily; opens one issue on drift",
+			"reason": "Compares the live rulesets with their snapshots daily; opens one issue on drift",
 			"owner": "maintainers"
 		},
 		{
@@ -591,14 +650,6 @@
 			"tier": "report",
 			"required": false,
 			"reason": "Opens or closes one issue per scheduled or main job that fails three runs in a row (#1288)",
-			"owner": "maintainers"
-		},
-		{
-			"workflow": "cold-start-e2e.yml",
-			"job": "license",
-			"tier": "gate",
-			"required": false,
-			"reason": "Checks TDK_LICENSE_KEY and skips the licensed cold-start job with a warning when it is missing (#1288)",
 			"owner": "maintainers"
 		},
 		{
@@ -631,6 +682,78 @@
 			"tier": "report",
 			"required": false,
 			"reason": "Weekly CI cost and health report; posts to the job summary and the Weekly CI report issue (#1289)",
+			"owner": "maintainers"
+		},
+		{
+			"workflow": "e2e-journeys.yml",
+			"job": "plan",
+			"tier": "gate",
+			"required": false,
+			"reason": "Chooses the journey suites for the event from tests/e2e/journeys/*/suite.json (#1298)",
+			"owner": "maintainers"
+		},
+		{
+			"workflow": "e2e-journeys.yml",
+			"job": "journeys",
+			"tier": "e2e",
+			"required": false,
+			"reason": "One matrix leg per journey suite; each leg reports its old check name until branch protection changes (#1298)",
+			"owner": "maintainers"
+		},
+		{
+			"workflow": "e2e-journeys.yml",
+			"job": "gate",
+			"tier": "gate",
+			"required": false,
+			"reason": "Passes when every selected journey passed or none was selected; required since the #1302 cutover (#1298)",
+			"owner": "maintainers"
+		},
+		{
+			"workflow": "e2e-journeys.yml",
+			"job": "license",
+			"tier": "gate",
+			"required": false,
+			"reason": "Checks FLISK_LICENSE_KEY for the cold-start journey; never runs on pull requests (#1298)",
+			"owner": "maintainers"
+		},
+		{
+			"workflow": "e2e-real-apps.yml",
+			"job": "example",
+			"tier": "e2e",
+			"required": false,
+			"reason": "Nightly real example apps on real routes, carried over from examples-e2e.yml at the #1302 cutover; suite tests/e2e/examples/real-apps",
+			"owner": "maintainers"
+		},
+		{
+			"workflow": "e2e-scale-full.yml",
+			"job": "erp",
+			"tier": "e2e",
+			"required": false,
+			"reason": "Full 100-service fixture boot, weekly and manual, carried over from erp-scale-e2e.yml at the #1302 cutover; suite tests/e2e/scale/erp",
+			"owner": "maintainers"
+		},
+		{
+			"workflow": "e2e-platforms-hardware.yml",
+			"job": "hosted",
+			"tier": "e2e",
+			"required": false,
+			"reason": "Reference run of the Windows hardware suite on windows-latest (#1765); suite tests/e2e/platforms/windows-hardware",
+			"owner": "maintainers"
+		},
+		{
+			"workflow": "e2e-platforms-hardware.yml",
+			"job": "hardware",
+			"tier": "e2e",
+			"required": false,
+			"reason": "Acceptance run of the Windows hardware suite on a self-hosted Windows 11 AMD64 machine, dispatched by hand (#1765)",
+			"owner": "maintainers"
+		},
+		{
+			"workflow": "e2e-platforms-wsl2.yml",
+			"job": "wsl2",
+			"tier": "e2e",
+			"required": false,
+			"reason": "The WSL2 suite on a Windows runner, dispatched by hand; suite tests/e2e/platforms/wsl2 (#107, #1765)",
 			"owner": "maintainers"
 		}
 	]

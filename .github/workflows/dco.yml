@@ -1,6 +1,6 @@
 # Every non-merge commit in a pull request must carry a Signed-off-by line.
 # See DCO and CONTRIBUTING.md. Bot-authored commits are exempt.
-name: 📜 DCO
+name: 📜 CI | DCO
 
 on:
   pull_request:
@@ -15,7 +15,7 @@ permissions:
 jobs:
   dco:
     name: DCO sign-off
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7

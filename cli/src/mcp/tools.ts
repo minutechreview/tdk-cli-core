@@ -1,4 +1,4 @@
-// Copyright (c) 2026 TDK Landscape contributors
+// Copyright (c) 2026 Flisk Landscape contributors
 // SPDX-License-Identifier: MIT
 import { type ChildProcess, spawn } from "node:child_process";
 import { closeSync, existsSync, openSync, readFileSync } from "node:fs";
@@ -11,12 +11,12 @@ import type { McpTool, McpToolResult } from "./server.js";
 const NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const SINCE = /^(\d+(\.\d+)?(ns|us|µs|ms|s|m|h))+$/;
 
-export type RunTdk = (
+export type RunFlisk = (
   args: string[],
   options?: { timeoutMs?: number; cwd?: string },
-) => Promise<TdkRun>;
+) => Promise<FliskRun>;
 
-export interface TdkRun {
+export interface FliskRun {
   exitCode: number | null;
   stdout: string;
   stderr: string;
@@ -37,8 +37,8 @@ export function cliInvocation(
   return [execPath, script];
 }
 
-/** Runs this same CLI (`tdk <args>`) so every tool behaves exactly like its command. */
-export const runTdkCli: RunTdk = (args, options = {}) =>
+/** Runs this same CLI (`flisk <args>`) so every tool behaves exactly like its command. */
+export const runFliskCli: RunFlisk = (args, options = {}) =>
   new Promise((resolve, reject) => {
     const [command, ...prefix] = cliInvocation();
     const child = spawn(command as string, [...prefix, ...args], {
@@ -88,7 +88,7 @@ function flag(value: unknown, field: string): boolean {
 }
 
 /** Turn a command's `--json` stdout into a tool result. A parseable envelope with errors, or `ok: false`, is an error result. */
-export function toToolResult(run: TdkRun): McpToolResult {
+export function toToolResult(run: FliskRun): McpToolResult {
   const text = run.stdout.trim();
   // The envelope is the last JSON line; anything before it is incidental output.
   const lastLine = text
@@ -99,7 +99,10 @@ export function toToolResult(run: TdkRun): McpToolResult {
     return {
       data: {
         errors: [
-          { code: "NO_JSON", message: run.stderr.trim() || `tdk exited with code ${run.exitCode}` },
+          {
+            code: "NO_JSON",
+            message: run.stderr.trim() || `flisk exited with code ${run.exitCode}`,
+          },
         ],
       },
       isError: true,
@@ -121,7 +124,7 @@ export function toToolResult(run: TdkRun): McpToolResult {
 }
 
 export interface UpDeps {
-  /** Starts `tdk up` detached, with output going to a log file. */
+  /** Starts `flisk up` detached, with output going to a log file. */
   spawnUp: (args: string[], logFile: string, cwd?: string) => ChildProcess;
   readLog: (logFile: string) => string;
   sleep: (ms: number) => Promise<void>;
@@ -151,7 +154,7 @@ export const defaultUpDeps: UpDeps = {
   },
   sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   now: () => Date.now(),
-  logFile: () => join(tmpdir(), `tdk-mcp-up-${Date.now()}.log`),
+  logFile: () => join(tmpdir(), `flisk-mcp-up-${Date.now()}.log`),
 };
 
 export function buildUpArgs(args: Record<string, unknown>): string[] {
@@ -239,18 +242,21 @@ const OBJECT = (properties: Record<string, unknown>) => ({
 
 const PROJECT_PATH = {
   type: "string",
-  description: "Absolute path to the TDK project root; run this operation from that directory.",
+  description: "Absolute path to the Flisk project root; run this operation from that directory.",
 };
 
 function projectPath(value: unknown): string | undefined {
   if (value === undefined) return undefined;
   if (typeof value !== "string" || !isAbsolute(value)) {
-    throw new Error("projectPath must be an absolute path to a TDK project root");
+    throw new Error("projectPath must be an absolute path to a Flisk project root");
   }
   return value;
 }
 
-export function createTdkTools(run: RunTdk = runTdkCli, up: UpDeps = defaultUpDeps): McpTool[] {
+export function createFliskTools(
+  run: RunFlisk = runFliskCli,
+  up: UpDeps = defaultUpDeps,
+): McpTool[] {
   const viaCli =
     (build: (args: Record<string, unknown>) => string[]) => async (args: Record<string, unknown>) =>
       toToolResult(await run(build(args), { cwd: projectPath(args.projectPath) }));
@@ -259,7 +265,7 @@ export function createTdkTools(run: RunTdk = runTdkCli, up: UpDeps = defaultUpDe
     {
       name: "doctor",
       description:
-        "Check whether this machine can run the TDK stack. Optionally set projectPath to include checks for a specific TDK project. Returns data.ready and data.host.canUp; run it before `up`.",
+        "Check whether this machine can run the Flisk stack. Optionally set projectPath to include checks for a specific Flisk project. Returns data.ready and data.host.canUp; run it before `up`.",
       inputSchema: OBJECT({
         projectPath: PROJECT_PATH,
         noPing: { type: "boolean", description: "Skip pinging running services' health endpoints" },

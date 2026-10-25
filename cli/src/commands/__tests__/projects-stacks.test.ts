@@ -1,4 +1,4 @@
-// Copyright (c) 2026 TDK Landscape contributors
+// Copyright (c) 2026 Flisk Landscape contributors
 // SPDX-License-Identifier: MIT
 import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
@@ -8,9 +8,9 @@ import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../..");
-const cliBin = path.join(repoRoot, "cli", "bin", "tdk.js");
+const cliBin = path.join(repoRoot, "cli", "bin", "flisk.js");
 
-describe("tdk projects and stacks", () => {
+describe("flisk projects and stacks", () => {
   let tempDirs: string[] = [];
 
   afterEach(() => {
@@ -21,12 +21,12 @@ describe("tdk projects and stacks", () => {
   });
 
   function createTempDir(): string {
-    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "tdk-projects-stacks-"));
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "flisk-projects-stacks-"));
     tempDirs.push(tempDir);
     return tempDir;
   }
 
-  function runTdk(cwd: string, args: string[]) {
+  function runFlisk(cwd: string, args: string[]) {
     return spawnSync(process.execPath, [cliBin, ...args], {
       cwd,
       encoding: "utf-8",
@@ -37,7 +37,7 @@ describe("tdk projects and stacks", () => {
   it.each(["projects", "stacks"])(
     "fails with a project-root hint when %s runs outside a project",
     (command) => {
-      const result = runTdk(createTempDir(), [command]);
+      const result = runFlisk(createTempDir(), [command]);
 
       expect(result.status).toBe(1);
       expect(result.stderr).toContain("Could not find project root");
@@ -46,10 +46,10 @@ describe("tdk projects and stacks", () => {
 
   it("prints an empty-state message for a project with no stacks", () => {
     const projectRoot = createTempDir();
-    fs.mkdirSync(path.join(projectRoot, ".tdk"), { recursive: true });
-    fs.writeFileSync(path.join(projectRoot, ".tdk", "project.json"), "{}\n");
+    fs.mkdirSync(path.join(projectRoot, ".flisk"), { recursive: true });
+    fs.writeFileSync(path.join(projectRoot, ".flisk", "project.json"), "{}\n");
 
-    const result = runTdk(projectRoot, ["stacks"]);
+    const result = runFlisk(projectRoot, ["stacks"]);
     expect(result.status).toBe(0);
     expect(result.stdout).toContain("No stacks found.");
   });

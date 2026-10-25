@@ -28,8 +28,8 @@
           "options": {
             "patterns": [
               {
-                "group": ["@tdk-landscape/*-backend", "@tdk-landscape/*-frontend"],
-                "message": "❌ tdk-cli is a leaf dev tool: it must never import a service package. See BOUNDARIES.md §4-5."
+                "group": ["@flisk-sh/*-backend", "@flisk-sh/*-frontend"],
+                "message": "❌ flisk-cli is a leaf dev tool: it must never import a service package. See BOUNDARIES.md §4-5."
               }
             ]
           }
