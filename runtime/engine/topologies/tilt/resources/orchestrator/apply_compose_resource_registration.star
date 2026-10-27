@@ -429,7 +429,7 @@ def _register_deferred_image_prebuild(config, auto_init_apps):
     """Build a deferStart resource's image during `flisk up` without creating its container.
 
     `auto_init=False` on the dc_resource skips its docker_build too (confirmed
-    live on tdk-erp-system, task 7.2), so a fresh project's first request would
+    live on flisk-erp-system, task 7.2), so a fresh project's first request would
     find no image and the wake gateway would fall back to `tilt trigger`, which
     queues behind every other build. This local_resource builds the same image
     (same Dockerfile and target as docker_build: `production`, or `development` for Go with `dev.liveReload`; host network, and an allowlist
@@ -587,7 +587,13 @@ DATABASE_APP_TYPES = ['backend', 'bring-your-own']
 
 def resource_needs_database(manifest):
     """True when a resource of this manifest receives DATABASE_URL and needs its database provisioned."""
-    return (manifest or {}).get('appType') in DATABASE_APP_TYPES
+    manifest = manifest or {}
+    if manifest.get('appType') in DATABASE_APP_TYPES:
+        return True
+    # An agent with postgres durability keeps its session checkpoints in the stack database, so without provisioning
+    # its /ready never turns 200.
+    agent = manifest.get('agent')
+    return manifest.get('appType') == 'agent' and type(agent) == 'dict' and agent.get('durability') == 'postgres'
 
 
 def _has_backend_resource(resource_config, resource_manifests):
@@ -615,7 +621,7 @@ def _register_frontend_typecheck(res, service_dir, typecheck_cmd):
         # Fixed script, variable parts passed as argv ($1 = service dir, $2 = typecheck command), never spliced into the shell text.
         cmd=[
             'sh', '-c',
-            'cd "$1" && { bunx tsc --version >/dev/null 2>&1 || { echo "typecheck needs host dependencies: run bun install in $1"; exit 1; }; } && eval "$2"',
+            'cd "$1" && { bunx tsc --version >/dev/null 2>&1 && test -f "$1/node_modules/vite/package.json" || { echo "typecheck needs host dependencies: run bun install in $1"; exit 1; }; } && eval "$2"',
             'sh', service_dir, typecheck_cmd,
         ],
         deps=[service_dir + '/src', service_dir + '/tsconfig.json'],

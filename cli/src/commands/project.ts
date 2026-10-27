@@ -9,6 +9,7 @@ import chalk from "chalk";
 import { Command } from "commander";
 import { generateMasterConfigs, readProjectConfig } from "../generator/template-engine.js";
 import type { DiscoveredResource, ProjectConfig } from "../types/index.js";
+import { installAgentSkills } from "../utils/agent-skills.js";
 import { addYesOption } from "../utils/command-helpers.js";
 import { MASTER_CONFIG_FILES, PROJECT_JSON } from "../utils/constants.js";
 import { clearDiscoveryCache } from "../utils/discovery-context.js";
@@ -257,7 +258,20 @@ const DEFAULT_PROJECT_JSON: ProjectConfig = {
   overrides: {},
 };
 
+/**
+ * Writes .flisk/project.json with the defaults `flisk project --yes` uses, and nothing else: no generated Tiltfile, Compose file,
+ * .env or engine copy. `flisk up` uses it to adopt a directory of `command` services as a project, so `flisk down` and
+ * `flisk doctor` find it afterwards.
+ */
+export function writeDefaultProjectConfig(projectRoot: string): void {
+  const projectConfig = JSON.parse(JSON.stringify(DEFAULT_PROJECT_JSON)) as ProjectConfig;
+  projectConfig.project.name = basename(projectRoot) || "my-project";
+  ensureDirectory(join(projectRoot, ".flisk"));
+  writeJsonFile(join(projectRoot, ".flisk", PROJECT_JSON), projectConfig);
+}
+
 export const projectCommand = addYesOption(new Command("project"))
+  .alias("init")
   .description("Initialize or validate project-level master configuration")
   .argument(
     "[template]",
@@ -271,6 +285,10 @@ export const projectCommand = addYesOption(new Command("project"))
   .option("--force", "Overwrite existing configuration (dangerous)")
   .option("--config-file <path>", "Load project config from existing JSON file")
   .option("-q, --quiet", "Only print what fails; used by `flisk demo`", false)
+  .option(
+    "--no-agent-skills",
+    "Do not write the Flisk agent skills (.claude/skills, .agents/skills) and AGENTS.md",
+  )
   .action(async (template, options) => {
     const { assertMachineReadyOrExit, detectRuntimePrerequisites, formatRuntimeNextSteps } =
       await import("../utils/cold-preflight.js");
@@ -550,6 +568,22 @@ export const projectCommand = addYesOption(new Command("project"))
       const ignored = ensureGitignore(projectRoot);
       if (ignored.length > 0 && !quiet) {
         showSuccess(`Added to .gitignore: ${ignored.join(", ")}`);
+      }
+
+      // A coding agent opened in the project then knows to build and run the app with Flisk.
+      // The project works without them, so a failure here is a warning, not an exit.
+      if (options.agentSkills !== false) {
+        try {
+          const skillFiles = installAgentSkills(projectRoot);
+          if (skillFiles.length > 0 && !quiet) {
+            showSuccess(
+              "Added agent skills: .claude/skills, .agents/skills and AGENTS.md (start with flisk-build)",
+            );
+          }
+        } catch (error) {
+          const reason = error instanceof Error ? error.message : String(error);
+          console.log(chalk.yellow(`⚠️  Could not add the agent skills: ${reason}`));
+        }
       }
 
       if (!quiet) {

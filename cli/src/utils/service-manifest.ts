@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Flisk Landscape contributors
 // SPDX-License-Identifier: MIT
 import { existsSync, readFileSync } from "node:fs";
+import { declaresCommand, validateNativeServiceFields } from "./native-service.js";
 import { validateSmoke } from "./smoke.js";
 
 export const SERVICE_MANIFEST_SCHEMA_VERSION = 1;
@@ -28,12 +29,14 @@ const KNOWN_SERVICE_FIELDS = new Set([
   "basePath",
   "build",
   "buildContext",
+  "command",
   "databaseName",
   "dependencies",
   "dev",
   "dependsOn",
   "dockerfile",
   "enabled",
+  "env",
   "exposeViaProxy",
   "featuresEnabled",
   "framework",
@@ -96,6 +99,7 @@ const GENERATED_STRING_FIELDS: ReadonlyArray<{
     pattern: /^[A-Za-z0-9._/:@-]+$/,
     expected: "an image reference such as ghcr.io/acme/app:1.0",
   },
+  { path: ["basePath"], pattern: /^\/[a-z0-9/-]*$/, expected: "a path such as /storefront" },
 ];
 
 /**
@@ -205,7 +209,12 @@ export function validateServiceManifest(
 
   const manifest = value as Record<string, unknown>;
   const errors: string[] = [];
-  for (const field of ["appName", "appType", "stack", "schemaVersion"] as const) {
+  // A `command` service runs as a local process, so it has no stack to group generated output by (the minimal contract in
+  // utils/native-service.ts). Every other service keeps the full set.
+  const requiredFields = declaresCommand(manifest)
+    ? (["appName", "appType", "schemaVersion"] as const)
+    : (["appName", "appType", "stack", "schemaVersion"] as const);
+  for (const field of requiredFields) {
     if (!(field in manifest)) errors.push(`${displayPath}.${field}: required field is missing`);
   }
   for (const field of ["appName", "appType", "stack"] as const) {
@@ -230,6 +239,7 @@ export function validateServiceManifest(
     errors.push(`${displayPath}.dev.liveReload: expected true or false`);
   }
   errors.push(...validateGeneratedStringFields(manifest, displayPath));
+  errors.push(...validateNativeServiceFields(manifest).map((error) => `${displayPath}: ${error}`));
 
   if ("smoke" in manifest) {
     for (const message of validateSmoke(manifest.smoke)) errors.push(`${displayPath}.${message}`);

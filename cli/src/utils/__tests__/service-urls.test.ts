@@ -12,6 +12,7 @@ import {
   pingHealthTarget,
   pingHealthTargets,
   resolveServicePath,
+  resolveServiceUrl,
   resolveSubdomainBases,
 } from "../service-urls.js";
 
@@ -196,6 +197,38 @@ describe("resolveServicePath", () => {
   });
 });
 
+describe("resolveServiceUrl", () => {
+  const original = process.env.FLISK_SERVICE_BASE_URL;
+
+  beforeEach(() => {
+    process.env.FLISK_SERVICE_BASE_URL = "http://demo.localhost";
+  });
+
+  afterEach(() => {
+    if (original === undefined) {
+      delete process.env.FLISK_SERVICE_BASE_URL;
+    } else {
+      process.env.FLISK_SERVICE_BASE_URL = original;
+    }
+  });
+
+  it("points a frontend at the ingress, not the Tilt UI port", () => {
+    expect(
+      resolveServiceUrl(makeResource("storefront", "frontend", { basePath: "/storefront" }), 8080),
+    ).toBe("http://app.demo.localhost:8080/storefront");
+  });
+
+  it("points a backend at the api ingress route", () => {
+    expect(resolveServiceUrl(makeResource("orders-api", "backend"), 8080)).toBe(
+      "http://api.demo.localhost:8080/api/orders",
+    );
+  });
+
+  it("has no URL for a service without a Traefik route", () => {
+    expect(resolveServiceUrl(makeResource("mailer", "worker"), 8080)).toBeUndefined();
+  });
+});
+
 describe("buildHealthTargets", () => {
   const original = process.env.FLISK_SERVICE_BASE_URL;
 
@@ -234,6 +267,27 @@ describe("buildHealthTargets", () => {
 
     expect(targets.map((t) => t.name)).toEqual(["menu-api"]);
   });
+
+  it.each(["worker", "library", "sdk", "migrator"] as const)(
+    "returns no health URL for a %s resource",
+    (kind) => {
+      expect(buildHealthTargets([makeResource(`test-${kind}`, kind)])).toEqual([]);
+    },
+  );
+
+  it("returns a health URL for a frontend while skipping worker, library, sdk, and migrator", () => {
+    const targets = buildHealthTargets([
+      makeResource("kitchen-worker", "worker"),
+      makeResource("shared-lib", "library"),
+      makeResource("client-sdk", "sdk"),
+      makeResource("db-migrator", "migrator"),
+      makeResource("floor-app", "frontend"),
+    ]);
+
+    expect(targets).toEqual([
+      { name: "floor-app", appType: "frontend", url: "http://app.demo.localhost/floor-app/health" },
+    ]);
+  });
 });
 
 describe("buildAdvertisedTargets", () => {
@@ -264,7 +318,35 @@ describe("buildAdvertisedTargets", () => {
   });
 
   it("has no targets when nothing is routable", () => {
-    expect(buildAdvertisedTargets([makeResource("kitchen-worker", "worker")])).toEqual([]);
+    expect(
+      buildAdvertisedTargets([
+        makeResource("kitchen-worker", "worker"),
+        makeResource("shared-lib", "library"),
+        makeResource("client-sdk", "sdk"),
+        makeResource("db-migrator", "migrator"),
+      ]),
+    ).toEqual([]);
+  });
+
+  it.each(["worker", "library", "sdk", "migrator"] as const)(
+    "returns no advertised URL for a %s resource",
+    (kind) => {
+      expect(buildAdvertisedTargets([makeResource(`test-${kind}`, kind)])).toEqual([]);
+    },
+  );
+
+  it("returns an advertised URL for a frontend while skipping worker, library, sdk, and migrator", () => {
+    const targets = buildAdvertisedTargets([
+      makeResource("kitchen-worker", "worker"),
+      makeResource("shared-lib", "library"),
+      makeResource("client-sdk", "sdk"),
+      makeResource("db-migrator", "migrator"),
+      makeResource("floor-app", "frontend"),
+    ]);
+
+    expect(targets).toEqual([
+      { name: "floor-app", appType: "frontend", url: "http://app.demo.localhost/floor-app" },
+    ]);
   });
 });
 

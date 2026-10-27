@@ -1,5 +1,5 @@
 # Nightly real-apps run (carried over from examples-e2e.yml at the #1302 cutover, so the nightly coverage is not lost).
-# Boots the two real example apps (tdk-saas-starter, tdk-restaurant-example)
+# Boots the two real example apps (flisk-saas-starter, flisk-restaurant-example)
 # on a clean GitHub-hosted runner with the published CLI, then requires their
 # actual routes to answer, not only /health: JSON from the business endpoints
 # and an HTML page from each frontend. It backs the claim that Flisk runs a real
@@ -35,7 +35,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - repo: tdk-saas-starter
+          - repo: flisk-saas-starter
             # "pattern|path": the backend whose health URL matches pattern must
             # answer path with 2xx and valid JSON.
             api_checks: |
@@ -48,7 +48,7 @@ jobs:
             web_checks: |
               dashboard-app|/
               checkout-app|/
-          - repo: tdk-restaurant-example
+          - repo: flisk-restaurant-example
             # Patterns match the service name in the URL (e.g. "reservation"
             # from /api/reservation/health), not the stack name ("guest") --
             # they only happen to be the same word for kitchen.

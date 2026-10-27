@@ -35,7 +35,6 @@ import {
   errorFactories,
   FliskError,
   getErrorMessage,
-  handleTiltFailure,
   requireProjectRoot,
   runCommand,
   showError,
@@ -53,6 +52,14 @@ import {
 import { formatHostPortPlan } from "../utils/host-port-plan.js";
 import { createJsonEmitter, type JsonError } from "../utils/json-output.js";
 import { toMachineError } from "../utils/machine-output.js";
+import { hasNearbyServiceJson } from "../utils/native-project.js";
+import {
+  formatMixedRuntimeRefusal,
+  isNativeProject,
+  isNativeService,
+  resolveRuntimeMode,
+} from "../utils/native-service.js";
+import { runNativeUp } from "../utils/native-up.js";
 import { nativeWindowsStackRefusal } from "../utils/native-windows.js";
 import { findProjectRoot, getPackageVersion } from "../utils/paths.js";
 import { findAvailablePort } from "../utils/port-assignment.js";
@@ -61,7 +68,11 @@ import { findPortOccupant } from "../utils/port-occupant.js";
 import { isApiServiceType } from "../utils/resource-kind.js";
 import { enforceSchemaVersionGate } from "../utils/schema-version-gate.js";
 import { enforceServiceConfigGate, warnSchemaVersions } from "../utils/service-config-checks.js";
-import { appendHealthPath, resolveSubdomainBases } from "../utils/service-urls.js";
+import {
+  appendHealthPath,
+  resolveServiceUrl,
+  resolveSubdomainBases,
+} from "../utils/service-urls.js";
 import {
   type discoverResources,
   discoverResourcesStrict,
@@ -81,6 +92,7 @@ import {
   buildStartupReport,
   formatStartupReport,
   isStartupStalled,
+  machineProblemFixes,
 } from "../utils/startup-report.js";
 import { buildTiltUpArgs, runTilt } from "../utils/tilt.js";
 import { classifyTiltPorts } from "../utils/tilt-port-owner.js";
@@ -91,20 +103,83 @@ import {
   secondUpAction,
   stopTiltForUp,
 } from "../utils/tilt-startup.js";
+import { upFailureHints } from "../utils/up-hints.js";
 import { findUnknownServices, resolveOnlySelection } from "../utils/up-only.js";
-import { tiltGetUiResources, waitForTiltResourcesReady } from "../utils/up-readiness.js";
-import { enableDiscoveredStacks } from "./project.js";
+import {
+  createUpProgressReporter,
+  fetchWithProgress,
+  shouldRedrawUpProgress,
+} from "../utils/up-progress.js";
+import {
+  tiltGetUiResources,
+  tiltResourceLogs,
+  waitForTiltResourcesReady,
+} from "../utils/up-readiness.js";
+import { enableDiscoveredStacks, writeDefaultProjectConfig } from "./project.js";
 
-export function formatUpSuccess(port: number, appUrls: string[] = []): string[] {
-  return [
-    "Flisk is up.",
-    `Tilt UI: http://localhost:${port}`,
-    "App URLs:",
-    ...(appUrls.length > 0
-      ? appUrls.slice(0, 5).map((url) => `  ${url}`)
-      : ["  run: flisk networks"]),
-    "Stop: flisk down",
-  ];
+export interface ServiceHealth {
+  name: string;
+  status: "ready" | "failed" | "starting";
+  url?: string;
+}
+
+export function formatUpSuccess(
+  port: number,
+  options: {
+    appUrls?: string[];
+    serviceHealth?: ServiceHealth[];
+    showLogsHint?: boolean;
+  } = {},
+): string[] {
+  const { appUrls = [], serviceHealth = [], showLogsHint = serviceHealth.length > 0 } = options;
+  const lines: string[] = [];
+
+  lines.push("Flisk is up.");
+  lines.push(`Tilt UI: http://localhost:${port}`);
+
+  if (serviceHealth.length > 0) {
+    lines.push("Services:");
+    for (const svc of serviceHealth.slice(0, 10)) {
+      const icon = svc.status === "ready" ? "✓" : svc.status === "failed" ? "✗" : "⟳";
+      const urlPart = svc.url ? ` → ${svc.url}` : "";
+      lines.push(`  ${icon} ${svc.name}${urlPart}`);
+    }
+    if (serviceHealth.length > 10) {
+      lines.push(`  … and ${serviceHealth.length - 10} more`);
+    }
+
+    // Health check URLs for test infrastructure and monitoring
+    lines.push("Health checks:");
+    for (const svc of serviceHealth.slice(0, 10)) {
+      const icon = svc.status === "ready" ? "✓" : svc.status === "failed" ? "✗" : "⟳";
+      if (svc.url) {
+        const healthUrl = svc.url.endsWith("/health") ? svc.url : `${svc.url}/health`;
+        lines.push(`  ${icon} ${svc.name}: ${healthUrl}`);
+      }
+    }
+    if (serviceHealth.length > 10) {
+      lines.push(`  … and ${serviceHealth.length - 10} more`);
+    }
+  } else if (appUrls.length > 0) {
+    lines.push("App URLs:");
+    for (const url of appUrls.slice(0, 5)) {
+      lines.push(`  ${url}`);
+    }
+    if (appUrls.length > 5) {
+      lines.push(`   … and ${appUrls.length - 5} more`);
+    }
+  } else {
+    lines.push("App URLs:");
+    lines.push("  run: flisk networks");
+  }
+
+  lines.push("Stop: flisk down");
+  if (showLogsHint) {
+    lines.push("Logs: flisk logs <service>");
+  }
+  lines.push("Next: flisk help  # or visit https://flisk.sh/docs");
+
+  return lines;
 }
 
 /**
@@ -284,6 +359,89 @@ function envFileFailure(error: unknown): { failure: JsonError; exitCode: number 
   };
 }
 
+/** A selection `flisk up` runs as local processes. */
+export interface NativeUpSelection {
+  projectRoot: string;
+  /** No .flisk/project.json yet: `flisk up` adopts the directory as a project. */
+  isNewProject: boolean;
+  all: DiscoveredResource[];
+  selected: DiscoveredResource[];
+  dependencies: string[];
+}
+
+/**
+ * Decides whether `flisk up` runs the selection as local processes (#2229). Returns null for today's Docker + Tilt path, which
+ * a project without any `command` service always takes. Outside a project, a directory whose services all declare `command`
+ * becomes the project. Refuses (through `fail`) an unknown stack or service, an invalid service.json, and a run that would mix
+ * native and container services.
+ */
+export function selectNativeRun(
+  stackName: string | undefined,
+  only: string[] | undefined,
+  fail: (code: string, message: string, suggestions?: string[]) => never,
+  cwd: string = process.cwd(),
+): NativeUpSelection | null {
+  const foundRoot = findProjectRoot(cwd);
+  if (!foundRoot && !hasNearbyServiceJson(cwd)) return null;
+  const projectRoot = foundRoot ?? cwd;
+  let discovered: ReturnType<typeof discoverResourcesWithProblems>;
+  try {
+    discovered = discoverResourcesWithProblems(projectRoot);
+  } catch {
+    return null;
+  }
+  const all = discovered.resources;
+  if (!all.some(isNativeService)) return null;
+  if (!foundRoot && !isNativeProject(all)) return null;
+  if (discovered.problems.length > 0) {
+    fail(
+      "INVALID_SERVICE_CONFIG",
+      discovered.problems
+        .map((problem) => `Invalid service.json at ${problem.path}: ${problem.reason}`)
+        .join("\n"),
+    );
+  }
+
+  let requested = all;
+  if (stackName) {
+    if (!stackExists(stackName, all)) {
+      const error = errorFactories.stackNotFound(
+        stackName,
+        discoverStacks(all).map((s) => s.name),
+      );
+      fail("STACK_NOT_FOUND", error.message, error.suggestions);
+    }
+    requested = getResourcesForStack(stackName, all);
+  }
+  if (only) {
+    const unknown = findUnknownServices(only, requested);
+    if (unknown.length > 0) {
+      const error = errorFactories.unknownServices(
+        unknown,
+        requested.map((service) => service.name),
+      );
+      fail("UNKNOWN_SERVICE", error.message, error.suggestions);
+    }
+  }
+  // A process cannot start before what it depends on, so a stack or --only selection always brings its dependsOn closure.
+  const names = only ?? requested.map((service) => service.name);
+  const selection = resolveOnlySelection(names, all);
+  const { mode, mixed } = resolveRuntimeMode(selection.selected, all);
+  if (mode === "container") {
+    const containerNames = (selection.selected.some(isNativeService) ? selection.selected : all)
+      .filter((service) => !isNativeService(service))
+      .map((service) => service.name);
+    fail("MIXED_RUNTIME", formatMixedRuntimeRefusal(mixed, containerNames));
+  }
+  return {
+    projectRoot,
+    isNewProject: !foundRoot,
+    all,
+    selected: selection.selected,
+    dependencies: only ? selection.dependencies : [],
+  };
+}
+
 export const upCommand = new Command("up")
   .description("Start all services (optionally filtered by stack)")
   .alias("deploy")
@@ -316,8 +474,11 @@ export const upCommand = new Command("up")
     if (options.json) options.quiet = true;
     const portSetting = parseTiltPort(process.env.TILT_PORT);
     if (!portSetting.ok) {
-      emit?.({ ok: false }, [{ code: "INVALID_TILT_PORT", message: portSetting.message }]);
-      showErrorAndExit(portSetting.message);
+      const suggestions = upFailureHints({ kind: "invalid-tilt-port" });
+      emit?.({ ok: false }, [
+        { code: "INVALID_TILT_PORT", message: portSetting.message, suggestions },
+      ]);
+      showErrorAndExit(portSetting.message, 1, suggestions);
     }
     const configuredTiltPort = portSetting.port;
     // First, before the host/Docker checks below: an old CLI must stop with one clear line, not a half-working stack.
@@ -327,6 +488,65 @@ export const upCommand = new Command("up")
         ignoreVersion: options.ignoreVersion,
         onFail: (message) => emit?.({ ok: false }, [{ code: "FLISK_VERSION_TOO_OLD", message }]),
       });
+    }
+    // Every selected service declares `command`: run them as local processes, with no Docker, Compose, Tilt or generated
+    // files (#2229). Decided before any Docker or Tilt check; a project without `command` services never enters this branch.
+    const nativeRun = selectNativeRun(stackName, options.only, (code, message, suggestions) => {
+      emit?.({ ok: false }, [
+        { code, message, ...(suggestions && suggestions.length > 0 ? { suggestions } : {}) },
+      ]);
+      return showErrorAndExit(message, 1, suggestions);
+    });
+    if (nativeRun) {
+      const platformRefusal = nativeWindowsUpRefusal(
+        process.platform,
+        process.env.FLISK_ALLOW_NATIVE_WINDOWS,
+      );
+      if (platformRefusal) showErrorAndExit(platformRefusal);
+      const { projectRoot } = nativeRun;
+      let envFilePath: string | undefined;
+      if (options.envFile !== undefined) {
+        try {
+          envFilePath = selectEnvFile(projectRoot, options.envFile).path;
+        } catch (error) {
+          const { failure, exitCode } = envFileFailure(error);
+          emit?.({ ok: false }, [failure]);
+          showErrorAndExit(failure.message, exitCode, failure.suggestions);
+        }
+      }
+      if (!nativeRun.isNewProject) {
+        enforceSchemaVersionGate(projectRoot, {
+          resources: nativeRun.all,
+          onInvalid: (message) =>
+            emit?.({ ok: false }, [{ code: "INVALID_SCHEMA_VERSION", message }]),
+        });
+      }
+      enforceServiceConfigGate(projectRoot, {
+        resources: nativeRun.all,
+        onInvalid: (message) =>
+          emit?.({ ok: false }, [{ code: "INVALID_SERVICE_CONFIG", message }]),
+      });
+      if (nativeRun.isNewProject && !options.dryRun) {
+        writeDefaultProjectConfig(projectRoot);
+        if (!options.quiet) {
+          console.log(
+            chalk.gray("Created .flisk/project.json (this directory is now a Flisk project)"),
+          );
+        }
+      }
+      await runNativeUp({
+        projectRoot,
+        selected: nativeRun.selected,
+        dependencies: nativeRun.dependencies,
+        stackName,
+        only: options.only,
+        envFilePath,
+        dryRun: options.dryRun,
+        quiet: options.quiet,
+        force: options.force,
+        emit,
+      });
+      return;
     }
     // The env file of the run. `--env-file` replaces the project .env for this run, so the file is
     // resolved and read before any prerequisite check, any write and any service starts.
@@ -390,7 +610,7 @@ export const upCommand = new Command("up")
     }
     if (!options.dryRun) {
       const { assertMachineReadyOrExit } = await import("../utils/cold-preflight.js");
-      await assertMachineReadyOrExit();
+      await assertMachineReadyOrExit({ hints: upFailureHints({ kind: "machine" }) });
     }
     const action = async (): Promise<void> => {
       const foundRoot = options.dryRun ? requireProjectRoot() : findProjectRoot();
@@ -553,9 +773,7 @@ export const upCommand = new Command("up")
           console.log(chalk.blue("\n🌍 Frontend URLs:"));
           for (const svc of frontends) {
             const basePath = svc.config?.basePath ?? `/${svc.name}`;
-            console.log(
-              chalk.gray(`  - ${svc.name}: ${appBase}${chalk.cyan(appendHealthPath(basePath))}`),
-            );
+            console.log(chalk.gray(`  - ${svc.name}: ${appBase}${chalk.cyan(basePath)}`));
           }
         }
 
@@ -723,12 +941,18 @@ export const upCommand = new Command("up")
         let startedDependencies = dependencyNames;
         if (uiReady && emit) {
           const deferred = getDeferredResourceNames(discoveredResources);
+          const dependsOn = Object.fromEntries(
+            discoveredResources.map((r) => [r.name, r.config?.dependsOn ?? []]),
+          );
           const readiness = await waitForTiltResourcesReady(port, {
             deferred,
             // Only what the caller named must be enabled. Dependencies are the Tiltfile's call (it skips some on purpose).
             expected: options.only
               ? options.only.filter((name: string) => !deferred.has(name))
               : undefined,
+            // As for the human output: stop as soon as everything left is blocked by a failure (for example init-networks),
+            // instead of waiting out the whole timeout.
+            isStalled: (text) => isStartupStalled(text, dependsOn, deferred),
           });
           if (readiness.ready) {
             jsonReady = true;
@@ -741,11 +965,23 @@ export const upCommand = new Command("up")
             }
           } else {
             startupFailed = true;
-            const detail = readiness.failures.map((f) => `${f.name}: ${f.message}`).join("; ");
+            const fixes = await machineProblemFixes(readiness.failures, (name) =>
+              tiltResourceLogs(port, name),
+            );
+            const detail = readiness.failures
+              .map((f) => {
+                const fix = fixes.get(f.name);
+                return `${f.name}: ${f.message}${fix ? `. ${fix}` : ""}`;
+              })
+              .join("; ");
             emit({ ok: false, tiltUrl: `http://localhost:${port}`, failures: readiness.failures }, [
               {
                 code: readiness.timedOut ? "UP_TIMEOUT" : "UP_RESOURCE_FAILED",
                 message: `${readiness.timedOut ? "Timed out waiting for resources" : "Resources failed"}${detail ? ` (${detail})` : ""}. Tilt is still running; inspect it or run: flisk down`,
+                suggestions: upFailureHints({
+                  kind: "services",
+                  failed: readiness.failures.map((failure) => failure.name),
+                }),
               },
             ]);
           }
@@ -757,10 +993,22 @@ export const upCommand = new Command("up")
           const dependsOn = Object.fromEntries(
             discoveredResources.map((r) => [r.name, r.config?.dependsOn ?? []]),
           );
+          const progress = createUpProgressReporter({
+            write: (text) => process.stdout.write(text),
+            redraw: shouldRedrawUpProgress({
+              isTTY: process.stdout.isTTY,
+              quiet: Boolean(options.quiet),
+              env: process.env,
+            }),
+            deferred,
+            columns: process.stdout.columns,
+          });
           const readiness = await waitForTiltResourcesReady(port, {
             deferred,
             isStalled: (text) => isStartupStalled(text, dependsOn, deferred),
+            fetchJson: fetchWithProgress(tiltGetUiResources, progress),
           });
+          progress.finish();
           if (!readiness.ready) {
             startupFailed = true;
             const resourcesJson = await tiltGetUiResources(port);
@@ -774,16 +1022,53 @@ export const upCommand = new Command("up")
                   blocked: [],
                   starting: [],
                 };
-            const reportLines = formatStartupReport(report, readiness.timedOut, (port) =>
-              findPortOccupant(port),
+            const machineFixes = await machineProblemFixes(report.failed, (name) =>
+              tiltResourceLogs(port, name),
+            );
+            const reportLines = formatStartupReport(
+              report,
+              readiness.timedOut,
+              (port) => findPortOccupant(port),
+              machineFixes,
             );
             if (reportLines.length > 0) {
-              showError(reportLines.join("\n"));
+              showError(
+                reportLines.join("\n"),
+                undefined,
+                upFailureHints({
+                  kind: "services",
+                  failed: report.failed.map((failure) => failure.name),
+                }),
+              );
             }
           }
         }
         if (uiReady && !options.quiet && !startupFailed) {
-          for (const line of formatUpSuccess(port)) console.log(chalk.blue(line));
+          const deferred = getDeferredResourceNames(discoveredResources);
+          const dependsOn = Object.fromEntries(
+            discoveredResources.map((r) => [r.name, r.config?.dependsOn ?? []]),
+          );
+          const readiness = await waitForTiltResourcesReady(port, {
+            deferred,
+            isStalled: (text) => isStartupStalled(text, dependsOn, deferred),
+          });
+          const serviceHealth: ServiceHealth[] = readiness.enabled.map((name) => {
+            const failed = readiness.failures.find((f) => f.name === name);
+            const svc = discoveredResources.find((r) => r.name === name);
+            const isReady = !failed && !readiness.failures.some((f) => f.name === name);
+            const isStarting = !isReady && !failed;
+            const url = svc ? resolveServiceUrl(svc, hostPortPlan.ingressHttp) : undefined;
+            return {
+              name,
+              status: failed ? "failed" : isStarting ? "starting" : "ready",
+              url,
+            };
+          });
+          for (const line of formatUpSuccess(port, {
+            serviceHealth,
+            showLogsHint: true,
+          }))
+            console.log(chalk.blue(line));
           printedSuccess = true;
         }
         if (uiReady && smokePlans.length > 0 && (emit ? jsonReady : !startupFailed)) {
@@ -801,19 +1086,27 @@ export const upCommand = new Command("up")
               envFiles: envFileSelection ? [envFileSelection.path] : [],
             }),
           });
+          const smokeFailures: string[] = [];
           for (const smokeResult of results) {
             if (smokeResult.ok) {
               if (!options.quiet)
                 console.log(chalk.green(`Smoke check passed: ${smokeResult.name}`));
             } else {
               smokeFailed = true;
+              smokeFailures.push(smokeResult.name);
               showError(formatSmokeFailure(smokeResult));
             }
           }
           if (smokeFailed) {
             stopTiltOnPort(port);
+            const suggestions = upFailureHints({ kind: "smoke", failed: smokeFailures });
+            showError("A smoke check failed; Tilt was stopped", undefined, suggestions);
             emit?.({ ok: false }, [
-              { code: "UP_SMOKE_FAILED", message: "A smoke check failed; Tilt was stopped" },
+              {
+                code: "UP_SMOKE_FAILED",
+                message: "A smoke check failed; Tilt was stopped",
+                suggestions,
+              },
             ]);
           }
         }
@@ -836,7 +1129,11 @@ export const upCommand = new Command("up")
       }
 
       if (result.exitCode !== 0) {
-        handleTiltFailure("up", result.exitCode);
+        showErrorAndExit(
+          `tilt up failed with exit code ${result.exitCode}`,
+          result.exitCode,
+          upFailureHints({ kind: "tilt-exited" }),
+        );
       }
 
       if (startupFailed && result.exitCode === 0) {
@@ -844,7 +1141,31 @@ export const upCommand = new Command("up")
       }
 
       if (!options.quiet && result.exitCode === 0 && !printedSuccess) {
-        for (const line of formatUpSuccess(port)) console.log(chalk.blue(line));
+        const deferred = getDeferredResourceNames(discoveredResources);
+        const dependsOn = Object.fromEntries(
+          discoveredResources.map((r) => [r.name, r.config?.dependsOn ?? []]),
+        );
+        const readiness = await waitForTiltResourcesReady(port, {
+          deferred,
+          isStalled: (text) => isStartupStalled(text, dependsOn, deferred),
+        });
+        const serviceHealth: ServiceHealth[] = readiness.enabled.map((name) => {
+          const failed = readiness.failures.find((f) => f.name === name);
+          const svc = discoveredResources.find((r) => r.name === name);
+          const isReady = !failed && !readiness.failures.some((f) => f.name === name);
+          const isStarting = !isReady && !failed;
+          const url = svc ? resolveServiceUrl(svc, hostPortPlan.ingressHttp) : undefined;
+          return {
+            name,
+            status: failed ? "failed" : isStarting ? "starting" : "ready",
+            url,
+          };
+        });
+        for (const line of formatUpSuccess(port, {
+          serviceHealth,
+          showLogsHint: true,
+        }))
+          console.log(chalk.blue(line));
       }
     };
 

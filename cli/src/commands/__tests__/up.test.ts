@@ -110,18 +110,44 @@ function documentedExitCode(diagnostic: string): number {
 
 describe("flisk up success output", () => {
   it("prints the first-win block with exact UI and networks copy", () => {
-    expect(formatUpSuccess(10350)).toEqual([
+    expect(formatUpSuccess(10350, {})).toEqual([
       "Flisk is up.",
       "Tilt UI: http://localhost:10350",
       "App URLs:",
       "  run: flisk networks",
       "Stop: flisk down",
+      "Next: flisk help  # or visit https://flisk.sh/docs",
     ]);
   });
 
-  it("includes at most five discovered app URLs", () => {
-    const lines = formatUpSuccess(10351, ["a", "b", "c", "d", "e", "f"]);
-    expect(lines.filter((line) => /^ {2}/.test(line))).toEqual(["  a", "  b", "  c", "  d", "  e"]);
+  it("includes at most five discovered app URLs when no service health provided", () => {
+    const lines = formatUpSuccess(10351, { appUrls: ["a", "b", "c", "d", "e", "f"] });
+    // Filter for lines with exactly two leading spaces (the URL lines), not the "… and X more" line which has three
+    expect(lines.filter((line) => /^ {2}[^ ]/.test(line))).toEqual([
+      "  a",
+      "  b",
+      "  c",
+      "  d",
+      "  e",
+    ]);
+  });
+
+  it("shows service health with status icons and URLs", () => {
+    const lines = formatUpSuccess(10350, {
+      serviceHealth: [
+        { name: "api", status: "ready", url: "http://localhost:10350/api/orders" },
+        { name: "web", status: "starting" },
+        { name: "worker", status: "failed" },
+      ],
+    });
+    expect(lines).toContain("Services:");
+    expect(
+      lines.some((l) => l.includes("✓ api") && l.includes("http://localhost:10350/api/orders")),
+    ).toBe(true);
+    expect(lines.some((l) => l.includes("⟳ web"))).toBe(true);
+    expect(lines.some((l) => l.includes("✗ worker"))).toBe(true);
+    expect(lines).toContain("Stop: flisk down");
+    expect(lines).toContain("Logs: flisk logs <service>");
   });
 });
 
@@ -554,6 +580,49 @@ describe("second flisk up", () => {
     expect(secondUpAction({ runningPorts: [10350], force: true, only: false })).toEqual({
       action: "start",
     });
+  });
+});
+
+describe("next-step hints for a failed flisk up", () => {
+  async function failWithInvalidPort(args: string[]) {
+    const tiltPort = process.env.TILT_PORT;
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const out: string[] = [];
+    vi.mocked(writeSync).mockClear();
+    vi.mocked(writeSync).mockImplementation(((fd: number, data: string) => {
+      if (fd === 1) out.push(String(data));
+      return String(data).length;
+    }) as typeof writeSync);
+    const { exit } = captureExit();
+    try {
+      process.env.TILT_PORT = "abc";
+      await expect(upCommand.parseAsync(args, { from: "user" })).rejects.toThrow("process.exit");
+      return {
+        stderr: error.mock.calls.map((call) => String(call[0])).join("\n"),
+        stdout: out.join(""),
+      };
+    } finally {
+      if (tiltPort === undefined) delete process.env.TILT_PORT;
+      else process.env.TILT_PORT = tiltPort;
+      exit.mockRestore();
+      error.mockRestore();
+      vi.mocked(writeSync).mockReset();
+    }
+  }
+
+  it("suggests unsetting an invalid TILT_PORT", async () => {
+    const { stderr } = await failWithInvalidPort([]);
+    expect(stderr).toContain('Invalid TILT_PORT "abc"');
+    expect(stderr).toContain("unset TILT_PORT");
+  });
+
+  it("carries the hint in --json as the error's suggestions, not in the message", async () => {
+    const { stdout } = await failWithInvalidPort(["--json"]);
+    const envelope = JSON.parse(stdout.trim().split("\n")[0] ?? "{}");
+    const entry = envelope.errors[0];
+    expect(entry.code).toBe("INVALID_TILT_PORT");
+    expect(entry.suggestions).toEqual(["Unset it to use the default port: unset TILT_PORT"]);
+    expect(entry.message).not.toContain("unset TILT_PORT");
   });
 });
 

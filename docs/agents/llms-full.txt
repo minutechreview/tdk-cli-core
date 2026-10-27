@@ -22,6 +22,7 @@ See also the product site [llms.txt](https://flisk.sh/llms.txt).
    - **Tilt**: Watches directories and live-updates containers on code edits with sub-second hot reload.
    - **Traefik**: Acts as the local reverse proxy gateway (`*.localhost`), eliminating manual port management.
 4. **Drift Detection**: `flisk config verify` checks for drift between `service.json` and generated files, making CI checks reliable.
+5. **Local processes, no Docker**: A service whose `service.json` declares `command` (for example `{"schemaVersion": 1, "appName": "api", "appType": "backend", "command": "node server.js", "port": 4000}`) runs as a local process. When every service has one, `flisk up` starts them in `dependsOn` order without Docker, Tilt or generated files, prefixes their logs, restarts crashes, and prints `http://localhost:<port>` URLs; `flisk down`, `status`, `logs` and `doctor` work the same way. Prefer this for simple apps; use Docker + Tilt for databases, gateway routing and container parity. A project cannot mix both yet. Guide: docs/run-without-docker.md.
 
 ---
 
@@ -53,7 +54,7 @@ flisk resource <name> --type mcp --stack <stack>
 
 ### 3. Agent Host & Control Plane (`flisk mcp`)
 - stdio MCP server for AI coding assistants.
-- Tools: `doctor`, `up`, `down`, `status`, `logs`, `resource_list`, `restart_resource`, `list_agents`, `get_agent_sessions`.
+- Tools: `doctor`, `up`, `down`, `status`, `logs`, `resource_list`, `restart_resource`, `list_agents`, `get_agent_sessions`, `stack_list`, `project_info`, `network_list`, `config_verify`, `config_explain`, `runtime_check`, `config_regenerate`, `resource_create`, `stack_assign`, `project_init`.
   - `doctor`: Check whether this machine can run the Flisk stack and optionally validate a project.
   - `up`: Start the stack (or selected services) detached and watch briefly for early failures.
   - `down`: Stop the running stack.
@@ -62,8 +63,19 @@ flisk resource <name> --type mcp --stack <stack>
   - `resource_list`: List the project's services with their stack, type, and port.
   - `restart_resource`: Restart a running resource in the stack (or trigger its rebuild).
   - `list_agents`: List AI agent resources (`appType: "agent"`) with their stack, runtime, durability, and port.
-  - `get_agent_sessions`: Inspect session checkpoints from a running AI agent resource.
-- Emits structured, versioned `--json` payloads.
+  - `get_agent_sessions`: List sessions of a running AI agent resource, or inspect one session checkpoint (`sessionId` optional).
+  - `stack_list`: List the project's stacks with their resource counts (`services` adds service names, `verbose` descriptions).
+  - `project_info`: Show the project root, whether the generated master files exist, and resource and stack counts.
+  - `network_list`: List the Traefik URL of every frontend and API service and whether it answers (`stack` optional).
+  - `config_verify`: Check that the generated files match `.flisk/project.json` and that every `service.json` is valid.
+  - `config_explain`: Say whether a project file is generated or user-owned and what editing it does on `up` (`file` required).
+  - `runtime_check`: Check that the installed CLI has its bundled runtime assets (a source checkout reports `ok: false`).
+  - `config_regenerate`: Regenerate the master config files; a dry run unless `dryRun` is `false`, and a real run discards hand edits in them.
+  - `resource_create`: Scaffold a service non-interactively (`name` required; `type`, `stack`, `framework`, `language`, `port`, `features`, `runtime`, `durability`).
+  - `stack_assign`: Assign resources that have no stack to a stack (`stack` and `resources` required).
+  - `project_init`: Create a Flisk project in `projectPath`, or clone a starter `template` there; it never overwrites an existing `.flisk/project.json`.
+- The read-only and lifecycle tools return the command's structured, versioned `--json` envelope. The scaffolding tools (`config_regenerate`, `resource_create`, `stack_assign`, `project_init`) return its text output as `exitCode`, `output` and `stderr`.
+- No tool runs `eject` (leaving Flisk is the user's decision), `import` (it downloads and runs the `flisk-import` package from npm), `config migrate`, `config enable-infra` or `config disable-infra` (they rewrite `service.json` or `.flisk/project.json` and have no dry run), or `config edit` (it opens an editor). Run them in a shell.
 
 ---
 

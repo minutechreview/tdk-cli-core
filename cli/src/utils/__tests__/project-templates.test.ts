@@ -8,7 +8,7 @@ import { bareTemplateArg, PROJECT_TEMPLATES } from "../project-templates.js";
 
 const exampleRoot = resolve(
   dirname(fileURLToPath(import.meta.url)),
-  "../../../../examples/tdk-example",
+  "../../../../examples/flisk-example",
 );
 
 describe("PROJECT_TEMPLATES", () => {
@@ -33,14 +33,14 @@ describe("PROJECT_TEMPLATES", () => {
     expect(PROJECT_TEMPLATES.demo.fixedDir).toBe("flisk-demo");
   });
 
-  it("points ecommerce at tdk-ecommerce-example", () => {
+  it("points ecommerce at flisk-ecommerce-example", () => {
     expect(PROJECT_TEMPLATES.ecommerce.repo).toBe(
-      "https://github.com/flisk-sh/tdk-ecommerce-example.git",
+      "https://github.com/flisk-sh/flisk-ecommerce-example.git",
     );
   });
 
   it("bundles the product example with the CLI package", () => {
-    expect(PROJECT_TEMPLATES.example.bundledPath).toBe("examples/tdk-example");
+    expect(PROJECT_TEMPLATES.example.bundledPath).toBe("examples/flisk-example");
     expect(PROJECT_TEMPLATES.example.description).toContain("NATS worker");
     const manifests = [
       "services/shop/orders-api/service.json",

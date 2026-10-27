@@ -2,7 +2,16 @@ import { Command } from "commander";
 import type { DiscoveredResource } from "../types/index.js";
 import { type SelectedEnvFile } from "../utils/env-selection.js";
 import { nativeWindowsStackRefusal } from "../utils/native-windows.js";
-export declare function formatUpSuccess(port: number, appUrls?: string[]): string[];
+export interface ServiceHealth {
+    name: string;
+    status: "ready" | "failed" | "starting";
+    url?: string;
+}
+export declare function formatUpSuccess(port: number, options?: {
+    appUrls?: string[];
+    serviceHealth?: ServiceHealth[];
+    showLogsHint?: boolean;
+}): string[];
 /**
  * The native Windows boundary for a command that starts a stack.
  *
@@ -50,4 +59,20 @@ export declare function waitForTiltUnlessStartupFailed<T>(tiltRun: Promise<T>, s
  * @throws FliskError when the file cannot be used; the run stops before it starts
  */
 export declare function selectRunEnvFile(projectRoot: string | null, requested: string | undefined): SelectedEnvFile | undefined;
+/** A selection `flisk up` runs as local processes. */
+export interface NativeUpSelection {
+    projectRoot: string;
+    /** No .flisk/project.json yet: `flisk up` adopts the directory as a project. */
+    isNewProject: boolean;
+    all: DiscoveredResource[];
+    selected: DiscoveredResource[];
+    dependencies: string[];
+}
+/**
+ * Decides whether `flisk up` runs the selection as local processes (#2229). Returns null for today's Docker + Tilt path, which
+ * a project without any `command` service always takes. Outside a project, a directory whose services all declare `command`
+ * becomes the project. Refuses (through `fail`) an unknown stack or service, an invalid service.json, and a run that would mix
+ * native and container services.
+ */
+export declare function selectNativeRun(stackName: string | undefined, only: string[] | undefined, fail: (code: string, message: string, suggestions?: string[]) => never, cwd?: string): NativeUpSelection | null;
 export declare const upCommand: Command;

@@ -15,6 +15,7 @@ import { showHelp } from "./commands/help.js";
 import { createProgram } from "./program.js";
 import { ensureGlobalInstall } from "./utils/cli-command.js";
 import { formatColdPreflight, runColdPreflight } from "./utils/cold-preflight.js";
+import { stopDemoStack } from "./utils/demo-reset.js";
 import type { DemoPhase, DemoPhaseStatus } from "./utils/demo-stage.js";
 import { unknownHelpTarget } from "./utils/help-command.js";
 import { bareTemplateArg } from "./utils/project-templates.js";
@@ -82,6 +83,8 @@ if (templateArg) {
   }
   const destination = isAbsolute(targetName) ? targetName : resolve(cwd(), targetName);
 
+  console.log(chalk.gray(`📁 Demo folder: ${destination}`));
+
   // Reusing an existing checkout is what keeps a second take free: the clone and the
   // dependency install are skipped, so the recording starts on the interesting part.
   let reused = false;
@@ -101,6 +104,15 @@ if (templateArg) {
       console.log(chalk.gray(`The demo is already running: ${running.url}`));
       await openUrl(running.url);
       process.exit(0);
+    }
+
+    // Take the old stack down before its folder goes, so a Traefik left behind does not keep port 80.
+    try {
+      stopDemoStack(destination);
+    } catch (error) {
+      console.log(
+        chalk.yellow(`Could not stop the previous demo stack: ${(error as Error).message}`),
+      );
     }
 
     if (keep) {

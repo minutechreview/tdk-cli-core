@@ -57,6 +57,8 @@ const RESOURCE_CONFIG_FIELDS = [
   "image",
   "exposeViaProxy",
   "agent",
+  "command",
+  "env",
 ] as const satisfies readonly (keyof ResourceConfigFields)[];
 type ResourceConfigFieldsAreComplete =
   Exclude<keyof ResourceConfigFields, (typeof RESOURCE_CONFIG_FIELDS)[number]> extends never
@@ -270,5 +272,47 @@ describe("bring-your-own health path", () => {
   it("keeps the healthCheckPath pattern when a bring-your-own service sets one", () => {
     expect(validateService({ ...byo, healthCheckPath: "/health" })).toBe(true);
     expect(validateService({ ...byo, healthCheckPath: "health" })).toBe(false);
+  });
+});
+
+describe("command services (the minimal contract)", () => {
+  const minimal = {
+    appName: "api",
+    appType: "backend",
+    command: "node server.js",
+    schemaVersion: 1,
+  };
+
+  it("accepts a service with appName, appType, command and schemaVersion, and no stack", () => {
+    expect(validateService(minimal)).toBe(true);
+    expect(
+      validateService({ ...minimal, port: 8080, env: { API_URL: "http://localhost:4000" } }),
+    ).toBe(true);
+  });
+
+  it("does not apply the Docker port ranges to a local process", () => {
+    expect(validateService({ ...minimal, appType: "backend", port: 8080 })).toBe(true);
+    expect(validateService({ ...minimal, appType: "frontend", port: 5173 })).toBe(true);
+  });
+
+  it("refuses a second runtime source next to command", () => {
+    expect(validateService({ ...minimal, image: "nginx" })).toBe(false);
+    expect(validateService({ ...minimal, dockerfile: "Dockerfile" })).toBe(false);
+  });
+
+  it("still needs appName, appType and schemaVersion", () => {
+    for (const field of ["appName", "appType", "schemaVersion"]) {
+      const without: Record<string, unknown> = { ...minimal };
+      delete without[field];
+      expect(validateService(without), field).toBe(false);
+    }
+  });
+
+  it("has no `name` alias for appName", () => {
+    expect(schema.properties.name).toBeUndefined();
+  });
+
+  it("requires env values to be strings", () => {
+    expect(validateService({ ...minimal, env: { PORT2: 1 } })).toBe(false);
   });
 });

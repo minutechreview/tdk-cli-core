@@ -35,7 +35,14 @@ import {
   planDoctorFixes,
   projectTiltPids,
 } from "../utils/doctor-fix.js";
+import { formatFixFirst, rankDoctorFixes } from "../utils/doctor-fix-first.js";
 import { checkDiskSpace, dockerDesktopStuck } from "../utils/doctor-host.js";
+import {
+  checkNativeCommands,
+  checkNativeDependsOn,
+  checkNativeRuntime,
+  checkNativeServiceHealth,
+} from "../utils/doctor-native.js";
 import {
   collectDoctorChecks,
   createDoctorReport,
@@ -73,6 +80,7 @@ import { evaluateFliskVersionFloor } from "../utils/flisk-version.js";
 import { formatCount } from "../utils/formatting.js";
 import { getHostPortPlan, resolveRuntimeIngressPort } from "../utils/host-port-config.js";
 import { createHostPortPlan, type HostPortPlan } from "../utils/host-port-plan.js";
+import { findNativeProject } from "../utils/native-project.js";
 import { findProjectRoot, getPackageVersion } from "../utils/paths.js";
 import { promptConfirm } from "../utils/prompt.js";
 import {
@@ -413,7 +421,9 @@ export async function checkColima(): Promise<CheckResult> {
     name: "Colima",
     didPass: false,
     message: status.problem ?? "The Colima VM is not running",
-    fix: status.fix,
+    fix:
+      status.fix ??
+      "Start Colima: colima start\n  Verify: colima status\n  Docs: https://github.com/abiosoft/colima",
   };
 }
 
@@ -431,7 +441,7 @@ export async function checkDockerRuntime(): Promise<CheckResult> {
         name: CONTAINER_RUNTIME_CHECK,
         didPass: false,
         message: "Docker is not running",
-        fix: DOCTOR_FIXES.dockerDaemonDown,
+        fix: "Start Docker Desktop, enable WSL2 integration, then retry: flisk doctor\n  Verify: docker ps\n  Docs: https://docs.docker.com/desktop/wsl/",
       };
     }
   }
@@ -449,8 +459,8 @@ export async function checkDockerRuntime(): Promise<CheckResult> {
       return {
         name: CONTAINER_RUNTIME_CHECK,
         didPass: false,
-        message: "Docker daemon is not responding",
-        fix: DOCTOR_FIXES.dockerDaemonDown,
+        message: "Docker daemon is not responding (timeout)",
+        fix: "Restart Docker daemon: systemctl restart docker (Linux) or restart Docker Desktop/Colima\n  Verify: docker ps\n  Docs: https://docs.docker.com/config/daemon/",
       };
     }
   }
@@ -472,7 +482,7 @@ export async function checkDockerRuntime(): Promise<CheckResult> {
       name: CONTAINER_RUNTIME_CHECK,
       didPass: false,
       message: "Colima is installed but not running",
-      fix: DOCTOR_FIXES.dockerDaemonDown,
+      fix: "Start Colima: colima start\n  Verify: colima status\n  Docs: https://github.com/abiosoft/colima",
     };
   }
   if (await succeeds("podman ps")) {
@@ -488,15 +498,15 @@ export async function checkDockerRuntime(): Promise<CheckResult> {
       name: CONTAINER_RUNTIME_CHECK,
       didPass: false,
       message: "Docker daemon is not running",
-      fix: DOCTOR_FIXES.dockerDaemonDown,
+      fix: "Start Docker daemon: systemctl start docker (Linux) or start Docker Desktop\n  Verify: docker ps\n  Docs: https://docs.docker.com/engine/daemon/",
     };
   }
 
   return {
     name: CONTAINER_RUNTIME_CHECK,
     didPass: false,
-    message: "Docker is not running",
-    fix: DOCTOR_FIXES.dockerMissing,
+    message: "Docker is not installed",
+    fix: "Install Docker: https://docs.docker.com/get-docker/\n  Verify: docker --version\n  After install, start Docker and retry: flisk doctor",
   };
 }
 
@@ -583,7 +593,7 @@ export async function checkDockerVersions(exec: ExecAsync = execAsync): Promise<
     name: "Docker Versions",
     didPass: false,
     message: `Docker is too old for generated healthchecks (they use start_interval):\n    ${problems.join("\n    ")}`,
-    fix: "Update Docker Desktop, or on Linux update docker-ce and the docker-compose-plugin package",
+    fix: "Update Docker: Docker Desktop (auto-updates), or Linux: apt/yum/dnf update docker-ce docker-compose-plugin\n  Verify: docker version --format '{{.Server.Version}}' && docker compose version --short\n  Docs: https://docs.docker.com/engine/install/",
   };
 }
 checkDockerVersions.requiresContainerRuntime = true;
@@ -598,7 +608,7 @@ export async function checkTilt(exec: ExecAsync = execAsync): Promise<CheckResul
       name: "Tilt CLI",
       didPass: false,
       message: "Tilt CLI not found",
-      fix: DOCTOR_FIXES.tiltMissing,
+      fix: "Install Tilt: curl -fsSL https://raw.githubusercontent.com/tilt-dev/tilt/master/scripts/install.sh | bash\n  Verify: tilt version\n  Docs: https://docs.tilt.dev/install.html",
     };
   }
 
@@ -607,7 +617,7 @@ export async function checkTilt(exec: ExecAsync = execAsync): Promise<CheckResul
       name: "Tilt CLI",
       didPass: false,
       message: `Tilt ${raw || "version unknown"} is below the required v${MIN_TILT_VERSION.join(".")} floor`,
-      fix: `Install Tilt v${MIN_TILT_VERSION.join(".")} or newer: https://docs.tilt.dev/install.html`,
+      fix: `Upgrade Tilt to v${MIN_TILT_VERSION.join(".")} or newer: https://docs.tilt.dev/install.html\n  Verify: tilt version\n  If using Homebrew: brew upgrade tilt`,
     };
   }
   return { name: "Tilt CLI", didPass: true, message: `Tilt ${raw} is available` };
@@ -634,7 +644,7 @@ export async function checkDockerOperatingSystem(
       name: "Docker OS",
       didPass: false,
       message: `Docker is using the ${osType || "unknown"} engine; Flisk requires Linux containers`,
-      fix: "Switch Docker Desktop to Linux containers, enable WSL2 integration, then retry flisk doctor.",
+      fix: "Switch Docker Desktop to Linux containers: Settings > General > Use the WSL 2 based engine\n  Or on Windows: docker context use default (if using WSL2 backend)\n  Verify: docker info --format '{{.OSType}}'\n  Docs: https://docs.docker.com/desktop/wsl/",
     };
   }
   return { name: "Docker OS", didPass: true, message: "Docker is using Linux containers" };
@@ -669,7 +679,7 @@ export async function checkBun(exec: ExecAsync = execAsync): Promise<CheckResult
         name: "Bun",
         didPass: false,
         message: `Bun ${rawVersion || "version unknown"} is below the required ${MIN_BUN_VERSION.join(".")} floor`,
-        fix: `Install Bun ${MIN_BUN_VERSION.join(".")} or newer: https://bun.sh/install`,
+        fix: `Upgrade Bun to ${MIN_BUN_VERSION.join(".")} or newer: https://bun.sh/install\n  Verify: bun --version\n  If using npm: npm install -g bun@latest`,
       };
     }
     return {
@@ -681,8 +691,8 @@ export async function checkBun(exec: ExecAsync = execAsync): Promise<CheckResult
     return {
       name: "Bun",
       didPass: false,
-      message: "Bun is not available",
-      fix: DOCTOR_FIXES.bunMissing,
+      message: "Bun is not installed",
+      fix: "Install Bun: curl -fsSL https://bun.sh/install | bash\n  Verify: bun --version\n  Docs: https://bun.sh/docs/installation",
     };
   }
 }
@@ -1484,6 +1494,13 @@ export function renderDoctorOutput(
   allResults?: CheckResult[],
 ): void {
   const results = allResults ?? [...machineResults, ...projectResults];
+  const printFixFirst = (): void => {
+    const lines = formatFixFirst(rankDoctorFixes(results));
+    if (lines.length === 0) return;
+    console.log(chalk.bold("Fix first"));
+    for (const line of lines) console.log(line);
+    console.log("");
+  };
   if (options.all) {
     console.log(chalk.bold("Machine"));
     printDoctorResults(machineResults);
@@ -1501,9 +1518,11 @@ export function renderDoctorOutput(
 
     console.log("");
     console.log(formatDoctorSummary(results));
+    printFixFirst();
   } else {
     printDoctorResults(results);
     console.log("");
+    printFixFirst();
 
     const allPassed = results.every((check) => check.didPass || check.isSkipped || check.isWarning);
     if (allPassed && !inProject) {
@@ -1574,9 +1593,14 @@ export const doctorCommand = new Command("doctor")
       return;
     }
 
+    // A project whose services all declare `command` runs as local processes: doctor checks only what they need (#2231).
+    const nativeProject = findNativeProject();
+    const nativeResources = nativeProject?.resources ?? null;
     if (!options.json) {
       console.log(
-        "Flisk doctor checks your local Docker + Tilt development environment; it does not check cluster deployments.",
+        nativeResources
+          ? "Flisk doctor checks what this project's local processes need; its services declare commands, so Docker and Tilt are not checked."
+          : "Flisk doctor checks your local Docker + Tilt development environment; it does not check cluster deployments.",
       );
     }
 
@@ -1645,11 +1669,15 @@ export const doctorCommand = new Command("doctor")
       console.log("Checking environment...\n");
     }
 
-    const projectRoot = findProjectRoot();
+    // A directory of command services is a project for doctor even before `flisk up` writes its .flisk/project.json.
+    const projectRoot = findProjectRoot() ?? nativeProject?.projectRoot ?? null;
 
     // Repairs run before the checks so the checks report the state after the fix.
     let fixActions: DoctorAction[] | undefined;
-    if (options.fix) {
+    if (options.fix && nativeResources) {
+      // The repairs are for Docker networks and Tilt probes, which a project of local processes does not have.
+      fixActions = [];
+    } else if (options.fix) {
       try {
         let projectName: string | undefined;
         if (projectRoot) {
@@ -1691,16 +1719,19 @@ export const doctorCommand = new Command("doctor")
       if (!options.json) printFixActions(fixActions, options.dryRun);
     }
 
-    let hostPortPlan: HostPortPlan | null;
+    // The host port plan places the gateway and Postgres containers; a project of local processes has neither.
+    let hostPortPlan: HostPortPlan | null | undefined;
     let portPlanError: string | undefined;
-    try {
-      hostPortPlan = await getHostPortPlan(projectRoot ?? process.cwd());
-    } catch (error) {
-      hostPortPlan = null;
-      portPlanError = error instanceof Error ? error.message : String(error);
+    if (!nativeResources) {
+      try {
+        hostPortPlan = await getHostPortPlan(projectRoot ?? process.cwd());
+      } catch (error) {
+        hostPortPlan = null;
+        portPlanError = error instanceof Error ? error.message : String(error);
+      }
     }
 
-    const machineChecks: Array<() => CheckResult | Promise<CheckResult>> = [
+    const containerMachineChecks: Array<() => CheckResult | Promise<CheckResult>> = [
       () =>
         hostPortPlan
           ? {
@@ -1739,7 +1770,7 @@ export const doctorCommand = new Command("doctor")
       requiresContainerRuntime("Docker Network Pool", () => checkDockerNetworkCapacity()),
       () => checkDuplicateFliskInstalls(),
     ];
-    const projectChecks: Array<() => CheckResult | Promise<CheckResult>> = [
+    const containerProjectChecks: Array<() => CheckResult | Promise<CheckResult>> = [
       () => checkFliskVersion(),
       checkMasterConfigs,
       checkGeneratedProjectRuntimeAssets,
@@ -1800,8 +1831,32 @@ export const doctorCommand = new Command("doctor")
       requiresContainerRuntime("Tilt Resources", checkTiltResourceHealth),
     ];
 
+    const machineChecks = nativeResources
+      ? [
+          () => checkNativeRuntime(nativeResources),
+          () => checkNativeCommands(nativeResources),
+          () => checkWslProjectLocation(findProjectRoot() ?? process.cwd(), options.strict),
+          () => checkDuplicateFliskInstalls(),
+        ]
+      : containerMachineChecks;
+    const projectChecks = nativeResources
+      ? [
+          () => checkFliskVersion(),
+          () => checkDuplicateResourceNames(),
+          () => checkDependsOnShape(),
+          () => checkNativeDependsOn(nativeResources),
+          () => checkCircularDependencies(),
+          () => checkServicePorts(),
+          () => checkSchemaVersions(undefined, options.strict),
+          () => checkDuplicateResourcePorts(),
+        ]
+      : containerProjectChecks;
+
+    if (options.ping && nativeResources && projectRoot) {
+      projectChecks.push(() => checkNativeServiceHealth(projectRoot, nativeResources, pingTimeout));
+    }
     // Runs last: needs routable services (and working Traefik) to mean anything.
-    if (options.ping) {
+    if (options.ping && !nativeResources) {
       // Probe the port a running stack is actually on, not the one the next `flisk up` would pick.
       const pingPort = projectRoot
         ? resolveRuntimeIngressPort(projectRoot, hostPortPlan?.ingressHttp)

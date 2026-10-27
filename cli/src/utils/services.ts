@@ -23,6 +23,7 @@ import {
 } from "./constants.js";
 import { errorFactories } from "./errors.js";
 import { formatCount } from "./formatting.js";
+import { declaresCommand, validateNativeServiceFields } from "./native-service.js";
 import { findProjectRoot } from "./paths.js";
 import {
   getInvalidServiceRoutePathFields,
@@ -72,6 +73,10 @@ function shouldSkipDirectory(name: string): boolean {
 function isValidResourceConfig(value: unknown): value is ResourceConfig {
   if (!value || typeof value !== "object") return false;
   const config = value as Record<string, unknown>;
+  // A `command` service (the minimal contract) has no legacy forms: appName and appType.
+  if (declaresCommand(config)) {
+    return typeof config.appName === "string" && typeof config.appType === "string";
+  }
   // Accept runtime, appType, or type (for backward compatibility with existing service.json files)
   const hasRuntimeOrAppType =
     typeof config.runtime === "string" ||
@@ -115,8 +120,15 @@ function parseResource(serviceJsonPath: string): DiscoveredResource {
   }
 
   if (!isValidResourceConfig(parsed)) {
-    throw new InvalidServiceJsonError("missing required fields (appName, runtime or appType)");
+    throw new InvalidServiceJsonError(
+      declaresCommand(parsed as Record<string, unknown>)
+        ? "missing required fields (appName and appType)"
+        : "missing required fields (appName, runtime or appType)",
+    );
   }
+
+  const nativeErrors = validateNativeServiceFields(parsed as Record<string, unknown>);
+  if (nativeErrors.length > 0) throw new InvalidServiceJsonError(nativeErrors.join("; "));
 
   const invalidRoutePathFields = getInvalidServiceRoutePathFields(parsed);
   if (invalidRoutePathFields.length > 0) {

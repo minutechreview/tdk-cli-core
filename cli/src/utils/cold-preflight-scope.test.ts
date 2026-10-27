@@ -103,6 +103,14 @@ describe("cold preflight scope", () => {
     expect(ids).not.toContain("tilt");
   });
 
+  it("gives the bun version probe enough time to start on a busy machine", async () => {
+    await runColdPreflight({ scope: "scaffold" });
+
+    const [, args, options] = probes.execFileSync.mock.calls[0];
+    expect(args).toEqual(["--version"]);
+    expect(options.timeout).toBeGreaterThanOrEqual(10_000);
+  });
+
   it("still probes the local runtime in the runtime scope", async () => {
     const result = await runColdPreflight({ scope: "runtime" });
 
@@ -120,6 +128,16 @@ describe("cold preflight scope", () => {
     expect(output).toContain("FAIL docker  Docker daemon is not running");
     expect(output).toContain("Start Docker Desktop, OrbStack, or Colima, then retry: flisk doctor");
     expect(output).toContain("FAIL tilt    Tilt CLI not found");
+  });
+
+  it("prints the caller's next-step hints after the failed machine checks", async () => {
+    await expect(
+      assertMachineReadyOrExit({ scope: "runtime", hints: ["Run: flisk doctor"] }),
+    ).rejects.toThrow("process.exit(1)");
+
+    expect(errorSpy.mock.calls.map((call: unknown[]) => String(call[0]))).toContain(
+      "→ Run: flisk doctor",
+    );
   });
 
   it("does not block the scaffold scope when Docker is stopped and Tilt is missing", async () => {

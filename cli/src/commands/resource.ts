@@ -174,6 +174,7 @@ export function createServiceJson(
   frameworkId?: string,
   languageId?: string,
   agent?: AgentConfig,
+  basePath?: string,
 ) {
   const framework = resolveFrontendFramework(type, frameworkId);
   // Only an explicit selection is persisted: a missing `language` has always meant Bun.
@@ -224,6 +225,7 @@ export function createServiceJson(
       : {}),
     ...(language ? { language: language.id } : {}),
     ...(type === "agent" && agent ? { agent } : {}),
+    ...(type === "frontend" && basePath ? { basePath } : {}),
   };
 }
 
@@ -345,7 +347,9 @@ export function createPackageJson(
       // vitest 5 peers on vite ^6.4.0 || ^7 || ^8; vite 5 makes `vitest run` fail at startup with
       // ERR_PACKAGE_PATH_NOT_EXPORTED ('./module-runner'), in every resource once it is hoisted.
       ...(isFrontend && !framework?.scripts ? { vite: "^6.4.1" } : {}),
-      ...(drizzleEnabled ? { "drizzle-kit": DRIZZLE_KIT_RANGE, "@types/pg": "^8.11.0" } : {}),
+      ...(drizzleEnabled ? { "drizzle-kit": DRIZZLE_KIT_RANGE } : {}),
+      // Both import 'pg' (src/db.ts, the agent's checkpoint store); without the types the image's `tsc` fails with TS7016.
+      ...(drizzleEnabled || isPostgresAgent ? { "@types/pg": "^8.11.0" } : {}),
       ...(framework?.devDependencies ?? {}),
       ...(backendFramework?.devDependencies ?? {}),
     },
@@ -588,6 +592,10 @@ export const resourceCommand = addYesOption(new Command("resource"))
   .option(
     "--port <port>",
     "Port for the resource, within its type's range (default: next free port in that range)",
+  )
+  .option(
+    "--base-path <path>",
+    "Base path for frontend routing (e.g., /storefront). Default is /{stack}s. Frontend only.",
   )
   .option("--feature <feature...>", "Enable a resource feature (for example: prisma, drizzle)")
   .option("--runtime <id>", "Agent runtime (for agent only): custom (default)")
@@ -1065,6 +1073,7 @@ This file contains the resource configuration for Flisk.
         scaffoldFrameworkId,
         options.language === undefined ? undefined : backendLanguage?.id,
         agentConfig,
+        resourceType === "frontend" ? options.basePath : undefined,
       );
       const packageJson = createPackageJson(
         resourceName,
