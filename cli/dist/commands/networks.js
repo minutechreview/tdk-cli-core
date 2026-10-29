@@ -61,7 +61,8 @@ function determineDefaultDomain() {
         // Capture every Host(`...`) in a rule (multi-host rules included), avoid ReDoS with bounded classes
         const domainRegex = /Host\(`([a-zA-Z0-9_.-]{1,100})`\)/g;
         for (let match = domainRegex.exec(traefikLabels); match !== null; match = domainRegex.exec(traefikLabels)) {
-            domains.add(match[1]);
+            if (match[1])
+                domains.add(match[1]);
         }
     }
     catch (err) {
@@ -88,20 +89,24 @@ function determineDefaultDomain() {
     if (projectDomains.length > 0) {
         // Sort by length - shortest is likely the project domain
         projectDomains.sort((a, b) => a.length - b.length);
-        return projectDomains[0];
+        const firstProjectDomain = projectDomains[0];
+        if (firstProjectDomain)
+            return firstProjectDomain;
     }
     // If only service-specific domains found, extract base from first one
     // e.g., "myapp-api-frontend.localhost" -> try to find "myapp.localhost"
     if (domainList.length > 0) {
         const firstDomain = domainList[0];
-        const localhostMatch = firstDomain.match(/([\w-]+)\.localhost$/);
-        if (localhostMatch) {
-            // If it looks like a service domain, try common project names
-            const commonProjects = ["flisk", "project", "app", "api", "myapp"];
-            for (const project of commonProjects) {
-                const testDomain = `${project}.localhost`;
-                if (domainList.includes(testDomain)) {
-                    return testDomain;
+        if (firstDomain) {
+            const localhostMatch = firstDomain.match(/([\w-]+)\.localhost$/);
+            if (localhostMatch) {
+                // If it looks like a service domain, try common project names
+                const commonProjects = ["flisk", "project", "app", "api", "myapp"];
+                for (const project of commonProjects) {
+                    const testDomain = `${project}.localhost`;
+                    if (domainList.includes(testDomain)) {
+                        return testDomain;
+                    }
                 }
             }
         }

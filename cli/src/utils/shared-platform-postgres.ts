@@ -77,7 +77,7 @@ function readTextIfExists(path: string): string | undefined {
 function parseStarlarkStringList(source: string, name: string): string[] | undefined {
   const skipSpaces = (at: number): number => {
     let i = at;
-    while (i < source.length && /\s/.test(source[i])) i += 1;
+    while (i < source.length && /\s/.test(source.charAt(i))) i += 1;
     return i;
   };
   let from = 0;
@@ -244,11 +244,12 @@ export function evaluateSharedPlatformPostgres(
   }
 
   const willStart = featureOn || dependsOnUsers.length > 0;
-  const reason: SharedPlatformPostgresEvaluation["reason"] = featureOn
-    ? "feature"
-    : dependsOnUsers.length > 0
-      ? "dependsOn"
-      : "none";
+  let reason: SharedPlatformPostgresEvaluation["reason"] = "none";
+  if (featureOn) {
+    reason = "feature";
+  } else if (dependsOnUsers.length > 0) {
+    reason = "dependsOn";
+  }
 
   return {
     featureOn,
